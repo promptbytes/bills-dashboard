@@ -19,6 +19,7 @@ The app is plain HTML, CSS and JavaScript with no build step and nothing to inst
 
 1. Download this project: on GitHub, click the green **Code** button, then **Download ZIP**, and unzip it.
 2. Double-click `index.html`. It opens in your web browser. That's it.
+   (Scanning payslips needs the app opened from a web address, such as the hosted link or `python3 -m http.server`. Browsers block the reader when a page is opened straight from a file.)
 
 ## How to open it on your phone
 
