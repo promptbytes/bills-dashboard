@@ -22,28 +22,35 @@
 </head>
 <body>
   <header class="topbar">
-    <div>
-      <h1>Bills Dashboard</h1>
+    <div class="title-block">
+      <h1 data-i18n="appTitle">Bills Dashboard</h1>
       <p class="month-label" id="month-label"></p>
     </div>
-    <button class="theme-toggle" id="theme-toggle" type="button" aria-label="Switch theme">
-      <span class="theme-icon" aria-hidden="true"></span>
-      <span class="theme-text"></span>
-    </button>
+    <div class="controls">
+      <label class="lang-picker">
+        <span class="lang-icon" aria-hidden="true">🌐</span>
+        <span class="visually-hidden" data-i18n="language">Language</span>
+        <select id="lang-select"></select>
+      </label>
+      <button class="theme-toggle" id="theme-toggle" type="button">
+        <span class="theme-icon" aria-hidden="true"></span>
+        <span class="theme-text" id="theme-text"></span>
+      </button>
+    </div>
   </header>
 
   <main>
-    <section class="summary" aria-label="This month">
+    <section class="summary">
       <div class="stat">
-        <span class="stat-label">Income</span>
+        <span class="stat-label" data-i18n="income">Income</span>
         <span class="stat-value income" id="total-income">€0</span>
       </div>
       <div class="stat">
-        <span class="stat-label">To pay</span>
+        <span class="stat-label" data-i18n="toPay">To pay</span>
         <span class="stat-value owe" id="total-owe">€0</span>
       </div>
       <div class="stat stat-wide">
-        <span class="stat-label">Left over</span>
+        <span class="stat-label" data-i18n="leftOver">Left over</span>
         <span class="stat-value" id="left-over">€0</span>
       </div>
       <p class="summary-note" id="summary-note" hidden></p>
@@ -51,26 +58,26 @@
 
     <section class="section" aria-labelledby="income-title">
       <div class="section-head">
-        <h2 id="income-title">Income</h2>
-        <button class="btn btn-primary" type="button" id="add-income">+ Add income</button>
+        <h2 id="income-title" data-i18n="income">Income</h2>
+        <button class="btn btn-primary" type="button" id="add-income" data-i18n-plus="addIncome">+ Add income</button>
       </div>
       <div class="card-list" id="income-list"></div>
     </section>
 
     <section class="section" aria-labelledby="payments-title">
       <div class="section-head">
-        <h2 id="payments-title">Payments</h2>
-        <button class="btn btn-primary" type="button" id="add-payment">+ Add bill</button>
+        <h2 id="payments-title" data-i18n="payments">Payments</h2>
+        <button class="btn btn-primary" type="button" id="add-payment" data-i18n-plus="addBill">+ Add bill</button>
       </div>
-      <p class="section-hint">Sorted by next due date</p>
+      <p class="section-hint" data-i18n="sortedHint">Sorted by next due date</p>
       <div class="card-list" id="payment-list"></div>
     </section>
 
     <footer class="footer">
-      <p>Your data is saved only in this browser on this device.</p>
+      <p data-i18n="savedLocal">Your data is saved only on this device.</p>
       <div class="footer-actions">
-        <button class="btn btn-ghost" type="button" id="export-btn">Download backup</button>
-        <label class="btn btn-ghost" for="import-file">Restore backup</label>
+        <button class="btn btn-ghost" type="button" id="export-btn" data-i18n="downloadBackup">Download backup</button>
+        <label class="btn btn-ghost" for="import-file" data-i18n="restoreBackup">Restore backup</label>
         <input type="file" id="import-file" accept="application/json,.json" hidden>
       </div>
     </footer>
@@ -79,43 +86,43 @@
   <!-- Income form -->
   <dialog class="sheet" id="income-dialog">
     <form method="dialog" id="income-form" novalidate>
-      <h3 id="income-form-title">Add income</h3>
+      <h3 id="income-form-title"></h3>
 
       <label class="field">
-        <span>Name</span>
-        <input name="name" type="text" required maxlength="60" placeholder="e.g. Salary" autocomplete="off">
+        <span data-i18n="name">Name</span>
+        <input name="name" type="text" required maxlength="60" autocomplete="off">
       </label>
 
       <fieldset class="field">
-        <legend>Type</legend>
+        <legend data-i18n="type">Type</legend>
         <div class="segmented">
-          <label><input type="radio" name="kind" value="fixed" checked><span>Fixed</span></label>
-          <label><input type="radio" name="kind" value="variable"><span>Variable</span></label>
+          <label><input type="radio" name="kind" value="fixed" checked><span data-i18n="fixed">Fixed</span></label>
+          <label><input type="radio" name="kind" value="variable"><span data-i18n="variable">Variable</span></label>
         </div>
         <small class="help" data-kind-help></small>
       </fieldset>
 
       <label class="field" data-fixed-only>
-        <span>Amount per month (€)</span>
+        <span data-i18n="amountPerMonth">Amount per month (€)</span>
         <input name="amount" type="number" inputmode="decimal" min="0" step="0.01" placeholder="0.00">
       </label>
 
       <div class="field-row">
         <label class="field">
-          <span>Start date</span>
+          <span data-i18n="startDate">Start date</span>
           <input name="startDate" type="date" required>
         </label>
         <label class="field">
-          <span>Paid on day</span>
+          <span data-i18n="paidOnDay">Paid on day</span>
           <input name="day" type="number" inputmode="numeric" min="1" max="31" required placeholder="1–31">
         </label>
       </div>
 
       <fieldset class="field">
-        <legend>End date</legend>
+        <legend data-i18n="endDate">End date</legend>
         <div class="segmented">
-          <label><input type="radio" name="endMode" value="indefinite" checked><span>Indefinite</span></label>
-          <label><input type="radio" name="endMode" value="date"><span>Set date</span></label>
+          <label><input type="radio" name="endMode" value="indefinite" checked><span data-i18n="indefinite">Indefinite</span></label>
+          <label><input type="radio" name="endMode" value="date"><span data-i18n="setDate">Set date</span></label>
         </div>
         <input name="endDate" type="date" class="mt" data-end-date hidden>
       </fieldset>
@@ -123,10 +130,10 @@
       <p class="form-error" data-error hidden></p>
 
       <div class="form-actions">
-        <button class="btn btn-danger" type="button" data-delete hidden>Delete</button>
+        <button class="btn btn-danger" type="button" data-delete hidden data-i18n="delete">Delete</button>
         <span class="spacer"></span>
-        <button class="btn btn-ghost" type="button" data-cancel>Cancel</button>
-        <button class="btn btn-primary" type="submit">Save</button>
+        <button class="btn btn-ghost" type="button" data-cancel data-i18n="cancel">Cancel</button>
+        <button class="btn btn-primary" type="submit" data-i18n="save">Save</button>
       </div>
     </form>
   </dialog>
@@ -134,41 +141,41 @@
   <!-- Payment form -->
   <dialog class="sheet" id="payment-dialog">
     <form method="dialog" id="payment-form" novalidate>
-      <h3 id="payment-form-title">Add bill</h3>
+      <h3 id="payment-form-title"></h3>
 
       <label class="field">
-        <span>Name</span>
-        <input name="name" type="text" required maxlength="60" placeholder="e.g. Rent" autocomplete="off">
+        <span data-i18n="name">Name</span>
+        <input name="name" type="text" required maxlength="60" autocomplete="off">
       </label>
 
       <label class="field">
-        <span>Amount (€)</span>
+        <span data-i18n="amount">Amount (€)</span>
         <input name="amount" type="number" inputmode="decimal" min="0" step="0.01" required placeholder="0.00">
       </label>
 
       <div class="field-row">
         <label class="field">
-          <span>Start date</span>
+          <span data-i18n="startDate">Start date</span>
           <input name="startDate" type="date" required>
         </label>
         <label class="field">
-          <span>Due on day</span>
+          <span data-i18n="dueOnDay">Due on day</span>
           <input name="day" type="number" inputmode="numeric" min="1" max="31" required placeholder="1–31">
         </label>
       </div>
 
       <label class="field">
-        <span>End date <em>(optional)</em></span>
+        <span><span data-i18n="endDate">End date</span> <em>(<span data-i18n="optional">optional</span>)</em></span>
         <input name="endDate" type="date">
       </label>
 
       <p class="form-error" data-error hidden></p>
 
       <div class="form-actions">
-        <button class="btn btn-danger" type="button" data-delete hidden>Delete</button>
+        <button class="btn btn-danger" type="button" data-delete hidden data-i18n="delete">Delete</button>
         <span class="spacer"></span>
-        <button class="btn btn-ghost" type="button" data-cancel>Cancel</button>
-        <button class="btn btn-primary" type="submit">Save</button>
+        <button class="btn btn-ghost" type="button" data-cancel data-i18n="cancel">Cancel</button>
+        <button class="btn btn-primary" type="submit" data-i18n="save">Save</button>
       </div>
     </form>
   </dialog>
@@ -176,34 +183,33 @@
   <!-- Log variable income -->
   <dialog class="sheet" id="log-dialog">
     <form method="dialog" id="log-form" novalidate>
-      <h3 id="log-form-title">Log amount</h3>
-      <p class="help" id="log-form-sub"></p>
+      <h3 id="log-form-title"></h3>
 
       <div class="field-row">
         <label class="field">
-          <span>Month</span>
+          <span data-i18n="month">Month</span>
           <input name="month" type="month" required>
         </label>
         <label class="field">
-          <span>Amount (€)</span>
+          <span data-i18n="amount">Amount (€)</span>
           <input name="amount" type="number" inputmode="decimal" min="0" step="0.01" required placeholder="0.00">
         </label>
       </div>
-      <small class="help">Saving a month that already has an amount replaces it.</small>
 
       <p class="form-error" data-error hidden></p>
 
       <div class="form-actions">
         <span class="spacer"></span>
-        <button class="btn btn-ghost" type="button" data-cancel>Close</button>
-        <button class="btn btn-primary" type="submit">Save</button>
+        <button class="btn btn-ghost" type="button" data-cancel data-i18n="cancel">Cancel</button>
+        <button class="btn btn-primary" type="submit" data-i18n="save">Save</button>
       </div>
 
-      <h4 class="history-title">History</h4>
+      <h4 class="history-title" data-i18n="history">History</h4>
       <ul class="history" id="log-history"></ul>
     </form>
   </dialog>
 
+  <script src="i18n.js"></script>
   <script src="app.js"></script>
 </body>
 </html>
