@@ -73,6 +73,38 @@
       <div class="card-list" id="payment-list"></div>
     </section>
 
+    <section class="section" aria-labelledby="payslips-title">
+      <div class="section-head">
+        <h2 id="payslips-title" data-i18n="payslips">Payslips</h2>
+      </div>
+      <div class="scan-box">
+        <p class="scan-title" data-i18n="scanPayslip">Scan a payslip or contract</p>
+        <p class="help" data-i18n="scanNote">The photo is read on this phone and never uploaded.</p>
+        <div class="scan-actions">
+          <label class="btn btn-primary" for="scan-camera">📷 <span data-i18n="takePhoto">Take photo</span></label>
+          <label class="btn btn-ghost" for="scan-file">🖼️ <span data-i18n="choosePhoto">Choose picture</span></label>
+          <button class="btn btn-ghost" type="button" id="manual-payslip" data-i18n="addByHand">Fill in by hand</button>
+        </div>
+        <input type="file" id="scan-camera" accept="image/*" capture="environment" hidden>
+        <input type="file" id="scan-file" accept="image/*" hidden>
+        <div class="scan-progress" id="scan-progress" hidden>
+          <div class="bar"><span id="scan-bar"></span></div>
+          <p class="help" id="scan-status"></p>
+        </div>
+      </div>
+      <div class="card-list" id="payslip-list"></div>
+    </section>
+
+    <section class="section" aria-labelledby="extras-title">
+      <div class="section-head">
+        <h2 id="extras-title" data-i18n="extras">Extra pay</h2>
+        <button class="btn btn-primary" type="button" id="add-extra" data-i18n-plus="addExtra">+ Add extra pay</button>
+      </div>
+      <p class="section-hint"><span id="extras-pt">Salários e dias extraordinários · </span><span data-i18n="extrasHint"></span></p>
+      <p class="extras-total" id="extras-total" hidden></p>
+      <div class="card-list" id="extra-list"></div>
+    </section>
+
     <footer class="footer">
       <p data-i18n="savedLocal">Your data is saved only on this device.</p>
       <div class="footer-actions">
@@ -209,7 +241,111 @@
     </form>
   </dialog>
 
+  <!-- Payslip review -->
+  <dialog class="sheet sheet-wide" id="payslip-dialog">
+    <form method="dialog" id="payslip-form" novalidate>
+      <h3 id="payslip-form-title" data-i18n="payslips">Payslip</h3>
+      <p class="notice" id="payslip-check" data-i18n="checkNumbers" hidden></p>
+      <p class="notice" id="payslip-contract" data-i18n="contractHint" hidden></p>
+
+      <div class="field-row">
+        <label class="field">
+          <span data-i18n="month">Month</span>
+          <input name="month" type="month" required>
+        </label>
+        <label class="field">
+          <span data-i18n="belongsTo">Income card</span>
+          <select name="incomeId" class="select"></select>
+        </label>
+      </div>
+
+      <h4 class="group-title" data-i18n="earnings">Earnings</h4>
+      <div class="lines" id="earn-lines"></div>
+      <button class="btn btn-ghost btn-small" type="button" data-add-line="earn" data-i18n-plus="addLine">+ Add line</button>
+
+      <h4 class="group-title" data-i18n="deductions">Deductions</h4>
+      <div class="lines" id="deduct-lines"></div>
+      <div class="quick-row">
+        <button class="btn btn-ghost btn-small" type="button" data-add-line="deduct" data-i18n-plus="addLine">+ Add line</button>
+        <button class="btn btn-ghost btn-small" type="button" id="quick-ss">+ <span data-i18n="quickSS">Social Security 11%</span></button>
+      </div>
+      <div class="irs-row">
+        <label class="field">
+          <span data-i18n="irsRate">IRS withholding (%)</span>
+          <input type="number" id="irs-rate" inputmode="decimal" min="0" max="60" step="0.1" placeholder="0">
+        </label>
+        <button class="btn btn-ghost btn-small" type="button" id="quick-irs">+ IRS</button>
+      </div>
+
+      <div class="totals">
+        <div><span data-i18n="gross">Gross</span><strong id="calc-gross"></strong></div>
+        <div><span data-i18n="deductions">Deductions</span><strong id="calc-deduct" class="negative"></strong></div>
+        <div class="totals-net"><span data-i18n="net">Net</span><strong id="calc-net" class="positive"></strong></div>
+      </div>
+      <p class="notice warn" id="payslip-mismatch" hidden></p>
+
+      <details class="ocr-text" id="ocr-details" hidden>
+        <summary data-i18n="showText">Show recognised text</summary>
+        <pre id="ocr-text"></pre>
+      </details>
+
+      <p class="form-error" data-error hidden></p>
+
+      <div class="form-actions">
+        <button class="btn btn-danger" type="button" data-delete hidden data-i18n="delete">Delete</button>
+        <span class="spacer"></span>
+        <button class="btn btn-ghost" type="button" data-cancel data-i18n="cancel">Cancel</button>
+        <button class="btn btn-primary" type="submit" data-i18n="save">Save</button>
+      </div>
+    </form>
+  </dialog>
+
+  <!-- Extra pay -->
+  <dialog class="sheet" id="extra-dialog">
+    <form method="dialog" id="extra-form" novalidate>
+      <h3 data-i18n="extras">Extra pay</h3>
+
+      <label class="field">
+        <span data-i18n="type">Type</span>
+        <select name="kind" class="select"></select>
+      </label>
+
+      <label class="field">
+        <span><span data-i18n="name">Name</span> <em>(<span data-i18n="optional">optional</span>)</em></span>
+        <input name="label" type="text" maxlength="60" autocomplete="off">
+      </label>
+
+      <div class="field-row">
+        <label class="field">
+          <span data-i18n="month">Month</span>
+          <input name="month" type="month" required>
+        </label>
+        <label class="field">
+          <span data-i18n="amount">Amount (€)</span>
+          <input name="amount" type="number" inputmode="decimal" min="0" step="0.01" required placeholder="0.00">
+        </label>
+      </div>
+
+      <label class="field">
+        <span><span data-i18n="days">Days</span> <em>(<span data-i18n="optional">optional</span>)</em></span>
+        <input name="days" type="number" inputmode="decimal" min="0" max="366" step="0.5">
+      </label>
+
+      <p class="form-error" data-error hidden></p>
+
+      <div class="form-actions">
+        <button class="btn btn-danger" type="button" data-delete hidden data-i18n="delete">Delete</button>
+        <span class="spacer"></span>
+        <button class="btn btn-ghost" type="button" data-cancel data-i18n="cancel">Cancel</button>
+        <button class="btn btn-primary" type="submit" data-i18n="save">Save</button>
+      </div>
+    </form>
+  </dialog>
+
   <script src="i18n.js"></script>
+  <script src="i18n-payslip.js"></script>
+  <script src="vendor/tesseract/tesseract.min.js" defer></script>
+  <script src="payslip.js"></script>
   <script src="app.js"></script>
 </body>
 </html>

@@ -456,3 +456,114 @@ input.invalid { border-color: var(--danger); }
 }
 .segmented label { min-width: 0; }
 .segmented span { overflow-wrap: anywhere; hyphens: auto; padding-left: 6px; padding-right: 6px; }
+
+/* ---------- Payslips ---------- */
+.scan-box {
+  margin-top: 12px;
+  padding: 16px;
+  border-radius: var(--radius);
+  background: var(--surface);
+  border: 1.5px dashed color-mix(in srgb, var(--accent) 45%, var(--border));
+}
+.scan-title { margin: 0 0 2px; font-weight: 600; }
+.scan-actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 12px; }
+.scan-actions label.btn { cursor: pointer; }
+.scan-progress { margin-top: 12px; }
+.scan-progress .bar { height: 8px; border-radius: 999px; background: var(--surface-2); overflow: hidden; }
+.scan-progress .bar span { display: block; height: 100%; width: 0; background: var(--accent); border-radius: 999px; transition: width .2s ease; }
+.scan-progress .help { margin-top: 6px; }
+
+.card-sub { display: block; font-weight: 400; font-size: .82rem; color: var(--muted); }
+.slip-totals { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-top: 10px; font-size: .88rem; }
+.slip-totals div { display: flex; flex-direction: column; min-width: 0; }
+.slip-totals span { color: var(--muted); font-size: .78rem; }
+.slip-lines { margin-top: 12px; font-size: .88rem; }
+.slip-lines summary { cursor: pointer; color: var(--accent); font-weight: 600; }
+.slip-lines h5 { margin: 12px 0 4px; font-size: .8rem; color: var(--muted); text-transform: uppercase; letter-spacing: .03em; }
+.slip-lines ul { list-style: none; margin: 0; padding: 0; display: grid; gap: 4px; }
+.slip-lines li { display: flex; justify-content: space-between; gap: 10px; padding: 6px 10px; border-radius: 10px; background: var(--surface-2); }
+.slip-lines li > span:first-child { min-width: 0; overflow-wrap: anywhere; }
+.slip-lines small { display: block; color: var(--muted); font-size: .75rem; }
+.slip-lines .amt { white-space: nowrap; font-variant-numeric: tabular-nums; font-weight: 600; }
+
+.extras-total { margin: 8px 0 0; font-weight: 600; color: var(--income); }
+
+/* Review form */
+.sheet-wide { width: min(620px, calc(100vw - 24px)); }
+.select {
+  width: 100%;
+  min-width: 0;
+  min-height: 46px;
+  padding: 10px 36px 10px 14px;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--border);
+  background: var(--surface-2) url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='8'%3E%3Cpath d='M1 1l5 5 5-5' stroke='%2369707d' stroke-width='2' fill='none'/%3E%3C/svg%3E") no-repeat right 14px center;
+  color: var(--text);
+  font: inherit;
+  font-size: 16px;
+  -webkit-appearance: none;
+  appearance: none;
+}
+.notice {
+  margin: 0 0 14px;
+  padding: 10px 14px;
+  border-radius: var(--radius-sm);
+  background: color-mix(in srgb, var(--accent) 12%, transparent);
+  color: var(--text);
+  font-size: .88rem;
+}
+.notice.warn { background: color-mix(in srgb, var(--owe) 15%, transparent); }
+.group-title { margin: 18px 0 8px; font-size: .95rem; }
+.lines { display: grid; gap: 8px; margin-bottom: 8px; }
+.line-row { padding: 8px; border-radius: var(--radius-sm); background: var(--surface-2); border: 1px solid var(--border); }
+.line-main { display: grid; grid-template-columns: minmax(0, 1fr) 110px 36px; gap: 6px; align-items: center; }
+.line-row .select, .line-row input { background-color: var(--surface); min-height: 42px; padding-top: 8px; padding-bottom: 8px; }
+.line-del {
+  width: 36px; height: 36px; border-radius: 999px; border: 0;
+  background: transparent; color: var(--danger); font-size: 1.4rem; line-height: 1; cursor: pointer;
+}
+.line-extra { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 12px; }
+.line-extra:empty { display: none; }
+.line-days { display: flex; align-items: center; gap: 8px; margin-top: 6px; font-size: .85rem; color: var(--muted); }
+.line-days input { width: 90px; }
+.line-label { color: var(--muted); font-size: .78rem; margin-top: 4px; overflow-wrap: anywhere; }
+.line-label:empty { display: none; }
+.quick-row { display: flex; flex-wrap: wrap; gap: 8px; }
+.irs-row { display: flex; align-items: flex-end; gap: 8px; margin-top: 12px; }
+.irs-row .field { flex: 1; margin: 0; }
+.irs-row .btn { min-height: 46px; }
+.totals {
+  margin: 18px 0 12px;
+  padding: 12px 14px;
+  border-radius: var(--radius-sm);
+  background: var(--surface-2);
+  display: grid;
+  gap: 6px;
+}
+.totals div { display: flex; justify-content: space-between; gap: 12px; font-size: .92rem; }
+.totals strong { font-variant-numeric: tabular-nums; white-space: nowrap; }
+.totals .totals-net { border-top: 1px solid var(--border); padding-top: 8px; font-size: 1.05rem; }
+.ocr-text { margin-bottom: 12px; font-size: .85rem; }
+.ocr-text summary { cursor: pointer; color: var(--accent); font-weight: 600; }
+.ocr-text pre {
+  white-space: pre-wrap; overflow-wrap: anywhere; max-height: 220px; overflow-y: auto;
+  padding: 10px; border-radius: var(--radius-sm); background: var(--surface-2); font-size: .75rem;
+}
+@media (max-width: 400px) {
+  .line-main { grid-template-columns: minmax(0, 1fr) 92px 32px; }
+}
+.btn { gap: 6px; }
+/* Each payslip line: the type on its own row (full width), then amount, days and remove. */
+.line-main { grid-template-columns: minmax(0, 1fr) 36px; grid-template-areas: "kind del" "amount amount"; }
+.line-main [data-k] { grid-area: kind; }
+.line-main [data-amount] { grid-area: amount; }
+.line-main .line-del { grid-area: del; }
+@media (min-width: 480px) {
+  .line-main { grid-template-columns: minmax(0, 1fr) 130px 36px; grid-template-areas: "kind amount del"; }
+}
+@media (max-width: 400px) {
+  .line-main { grid-template-columns: minmax(0, 1fr) 36px; }
+}
+.line-row.needs-amount { border-color: var(--owe); }
+.line-row.needs-amount [data-amount] { border-color: var(--owe); }
+.form-actions { flex-wrap: wrap; justify-content: flex-end; }

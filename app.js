@@ -161,10 +161,35 @@
       var raw = localStorage.getItem(STORAGE_KEY);
       if (raw) {
         var data = JSON.parse(raw);
-        if (data && Array.isArray(data.income) && Array.isArray(data.payments)) return data;
+        if (data && Array.isArray(data.income) && Array.isArray(data.payments)) return withDefaults(data);
       }
     } catch (e) { /* ignore and start fresh */ }
-    return { income: [], payments: [] };
+    return withDefaults({ income: [], payments: [] });
+  }
+
+  // Older saved data (and older backups) have no payslips or extra pay yet.
+  function withDefaults(data) {
+    if (!Array.isArray(data.payslips)) data.payslips = [];
+    if (!Array.isArray(data.extras)) data.extras = [];
+    return data;
+  }
+
+  // The payslip saved for this income card in this month, if any.
+  function payslipFor(incomeId, key) {
+    for (var i = 0; i < state.payslips.length; i++) {
+      var p = state.payslips[i];
+      if (p.incomeId === incomeId && p.month === key) return p;
+    }
+    return null;
+  }
+
+  function payslipTotals(p) {
+    var gross = 0, deduct = 0;
+    p.lines.forEach(function (l) {
+      if (window.Payslip.KINDS[l.kind] && window.Payslip.KINDS[l.kind].side === 'deduct') deduct += l.amount;
+      else gross += l.amount;
+    });
+    return { gross: round2(gross), deduct: round2(deduct), net: round2(gross - deduct) };
   }
 
   function save() {
@@ -219,7 +244,11 @@
     // Totals for this calendar month
     var totalIncome = 0, totalOwe = 0, notLogged = [];
     state.income.forEach(function (inc) {
-      if (inc.kind === 'variable') {
+      // A payslip for this month shows what really arrived, so it wins over the card's amount.
+      var slip = payslipFor(inc.id, thisKey);
+      if (slip) {
+        totalIncome += payslipTotals(slip).net;
+      } else if (inc.kind === 'variable') {
         var logged = inc.entries && inc.entries[thisKey];
         if (typeof logged === 'number') totalIncome += logged;
         else if (happensInMonth(inc, y, m)) notLogged.push(inc.name);
@@ -227,6 +256,11 @@
         totalIncome += inc.amount;
       }
     });
+    // Extra pay entered by hand counts too (extras read from a payslip are already in its net).
+    state.extras.forEach(function (x) {
+      if (x.month === thisKey) totalIncome += x.amount;
+    });
+    totalIncome = round2(totalIncome);
     state.payments.forEach(function (p) {
       if (happensInMonth(p, y, m)) totalOwe += p.amount;
     });
@@ -274,6 +308,8 @@
             '<div class="badges">' +
               '<span class="badge">' + escapeHtml(t(isVar ? 'variable' : 'fixed')) + '</span>' +
               '<span class="badge ' + (due.cls === 'warn' ? 'ok' : due.cls) + '">' + escapeHtml(due.text) + '</span>' +
+              (payslipFor(inc.id, thisKey) ? '<span class="badge ok">' + escapeHtml(t('net')) + ': ' +
+                money.format(payslipTotals(payslipFor(inc.id, thisKey)).net) + '</span>' : '') +
             '</div>' +
             '<dl class="card-meta">' +
               '<div><dt>' + escapeHtml(t('startDate')) + '</dt><dd>' + dateFmt.format(parseDate(inc.startDate)) + '</dd></div>' +
@@ -322,6 +358,108 @@
           '</article>';
       }).join('');
     }
+
+    renderPayslips();
+    renderExtras(y);
+  }
+
+  function kindName(kind) { return t('k_' + kind); }
+  function norm(s) { return String(s).toLowerCase().replace(/\s+/g, ' ').trim(); }
+
+  function incomeName(id) {
+    var inc = find(state.income, id);
+    return inc ? inc.name : '';
+  }
+
+  // ---------- Payslip cards ----------
+  function renderPayslips() {
+    var list = $('#payslip-list');
+    if (!state.payslips.length) {
+      list.innerHTML = '<div class="empty">' + escapeHtml(t('emptyPayslips')) + '</div>';
+      return;
+    }
+    list.innerHTML = state.payslips.slice().sort(function (a, b) { return b.month.localeCompare(a.month); }).map(function (p) {
+      var tot = payslipTotals(p);
+      var who = incomeName(p.incomeId);
+      var lines = function (side) {
+        return p.lines.filter(function (l) { return window.Payslip.KINDS[l.kind].side === side; }).map(function (l) {
+          return '<li><span>' + escapeHtml(kindName(l.kind)) + (l.days ? ' · ' + l.days + ' ' + escapeHtml(t('days').toLowerCase()) : '') +
+            (l.label && norm(l.label) !== norm(kindName(l.kind)) ? '<small>' + escapeHtml(l.label) + '</small>' : '') + '</span>' +
+            '<span class="amt' + (side === 'deduct' ? ' negative' : '') + '">' + (side === 'deduct' ? '−' : '') + money.format(l.amount) + '</span></li>';
+        }).join('');
+      };
+      return '' +
+        '<article class="card">' +
+          '<div class="card-top">' +
+            '<div class="card-name">' + escapeHtml(monthKeyLabel(p.month)) + (who ? '<small class="card-sub">' + escapeHtml(who) + '</small>' : '') + '</div>' +
+            '<div class="card-amount positive">' + money.format(tot.net) + '</div>' +
+          '</div>' +
+          '<div class="slip-totals">' +
+            '<div><span>' + escapeHtml(t('gross')) + '</span><strong>' + money.format(tot.gross) + '</strong></div>' +
+            '<div><span>' + escapeHtml(t('deductions')) + '</span><strong class="negative">−' + money.format(tot.deduct) + '</strong></div>' +
+          '</div>' +
+          '<details class="slip-lines"><summary>' + escapeHtml(t('earnings')) + ' · ' + escapeHtml(t('deductions')) + '</summary>' +
+            '<h5>' + escapeHtml(t('earnings')) + '</h5><ul>' + lines('earn') + '</ul>' +
+            '<h5>' + escapeHtml(t('deductions')) + '</h5><ul>' + (lines('deduct') || '<li><span>—</span></li>') + '</ul>' +
+          '</details>' +
+          '<div class="card-actions">' +
+            '<button class="btn btn-ghost btn-small" type="button" data-action="edit-payslip" data-id="' + p.id + '">' + escapeHtml(t('edit')) + '</button>' +
+            '<button class="btn btn-danger btn-small" type="button" data-action="delete-payslip" data-id="' + p.id + '">' + escapeHtml(t('delete')) + '</button>' +
+          '</div>' +
+        '</article>';
+    }).join('');
+  }
+
+  // ---------- Extra pay (salários extraordinários) ----------
+  // Extra pay entered by hand, plus the extra lines found on saved payslips.
+  function allExtras() {
+    var out = state.extras.map(function (x) { return { x: x, manual: true }; });
+    state.payslips.forEach(function (p) {
+      p.lines.forEach(function (l) {
+        if (window.Payslip.KINDS[l.kind].extra) {
+          out.push({ x: { kind: l.kind, label: l.label, amount: l.amount, days: l.days, month: p.month }, payslipId: p.id });
+        }
+      });
+    });
+    return out.sort(function (a, b) { return b.x.month.localeCompare(a.x.month); });
+  }
+
+  function renderExtras(year) {
+    $('#extras-pt').hidden = lang === 'pt';
+    var items = allExtras();
+    var list = $('#extra-list');
+    var yearTotal = 0;
+    items.forEach(function (it) { if (it.x.month.slice(0, 4) === String(year)) yearTotal += it.x.amount; });
+    var totalEl = $('#extras-total');
+    totalEl.hidden = !yearTotal;
+    totalEl.textContent = t('thisYear') + ' (' + year + '): ' + money.format(round2(yearTotal));
+    if (!items.length) {
+      list.innerHTML = '<div class="empty">' + escapeHtml(t('emptyExtras')) + '</div>';
+      return;
+    }
+    list.innerHTML = items.map(function (it) {
+      var x = it.x;
+      var title = x.label && it.manual ? x.label : kindName(x.kind);
+      return '' +
+        '<article class="card">' +
+          '<div class="card-top">' +
+            '<div class="card-name">' + escapeHtml(title) + '</div>' +
+            '<div class="card-amount positive">' + money.format(x.amount) + '</div>' +
+          '</div>' +
+          '<div class="badges">' +
+            '<span class="badge accent">' + escapeHtml(monthKeyLabel(x.month)) + '</span>' +
+            (x.label && it.manual ? '<span class="badge">' + escapeHtml(kindName(x.kind)) + '</span>' : '') +
+            (x.days ? '<span class="badge">' + escapeHtml(t('days')) + ': ' + x.days + '</span>' : '') +
+            (it.payslipId ? '<span class="badge ok">' + escapeHtml(t('fromPayslip')) + '</span>' : '') +
+          '</div>' +
+          '<div class="card-actions">' +
+            (it.manual
+              ? '<button class="btn btn-ghost btn-small" type="button" data-action="edit-extra" data-id="' + x.id + '">' + escapeHtml(t('edit')) + '</button>' +
+                '<button class="btn btn-danger btn-small" type="button" data-action="delete-extra" data-id="' + x.id + '">' + escapeHtml(t('delete')) + '</button>'
+              : '<button class="btn btn-ghost btn-small" type="button" data-action="edit-payslip" data-id="' + it.payslipId + '">' + escapeHtml(t('edit')) + '</button>') +
+          '</div>' +
+        '</article>';
+    }).join('');
   }
 
   // ---------- Dialog helpers ----------
@@ -547,13 +685,271 @@
     renderHistory(inc);
   });
 
+  // ---------- Scanning a payslip ----------
+  var scanBox = $('#scan-progress');
+
+  function startScan(file) {
+    if (!file) return;
+    scanBox.hidden = false;
+    $('#scan-bar').style.width = '0%';
+    $('#scan-status').textContent = t('reading', { pct: 0 });
+    window.Payslip.scan(file, function (pct) {
+      $('#scan-bar').style.width = pct + '%';
+      $('#scan-status').textContent = t('reading', { pct: pct });
+    }).then(function (out) {
+      scanBox.hidden = true;
+      var r = out.result;
+      // A contract usually states only the gross salary: use it as the base salary line.
+      if (!r.items.length && r.gross != null) r.items.push({ kind: 'base', amount: r.gross });
+      var contract = !r.items.some(function (l) { return window.Payslip.KINDS[l.kind].side === 'deduct'; }) && r.net == null;
+      openPayslipForm(null, {
+        // A contract's date is when it was signed, not a pay month, so a contract starts on the current month.
+        lines: r.items, month: contract ? null : r.month, detectedNet: r.net, text: out.text,
+        looksLikeContract: contract
+      });
+    }, function () {
+      $('#scan-bar').style.width = '0%';
+      $('#scan-status').textContent = t('readFailed');
+    });
+  }
+  ['#scan-camera', '#scan-file'].forEach(function (sel) {
+    $(sel).addEventListener('change', function (e) {
+      var f = e.target.files && e.target.files[0];
+      e.target.value = '';
+      startScan(f);
+    });
+  });
+  $('#manual-payslip').addEventListener('click', function () { openPayslipForm(null, null); });
+
+  // ---------- Payslip review form ----------
+  var slipDlg = $('#payslip-dialog');
+  var slipForm = $('#payslip-form');
+  var editingSlipId = null, detectedNet = null;
+
+  function kindOptions(side, selected) {
+    return Object.keys(window.Payslip.KINDS).filter(function (k) { return window.Payslip.KINDS[k].side === side; })
+      .map(function (k) {
+        return '<option value="' + k + '"' + (k === selected ? ' selected' : '') + '>' + escapeHtml(kindName(k)) + '</option>';
+      }).join('');
+  }
+
+  function addLineRow(side, line) {
+    line = line || { kind: side === 'earn' ? 'base' : 'otherDeduct', amount: '' };
+    var row = document.createElement('div');
+    row.className = 'line-row';
+    row.setAttribute('data-side', side);
+    row.innerHTML =
+      '<div class="line-main">' +
+        '<select class="select" data-k aria-label="' + escapeHtml(t('type')) + '">' + kindOptions(side, line.kind) + '</select>' +
+        '<input type="number" inputmode="decimal" min="0" step="0.01" placeholder="0.00" data-amount aria-label="' + escapeHtml(t('amount')) + '">' +
+        '<button type="button" class="line-del" aria-label="' + escapeHtml(t('delete')) + '">×</button>' +
+      '</div>' +
+      '<div class="line-extra">' +
+        '<label class="line-days"><span>' + escapeHtml(t('days')) + '</span><input type="number" inputmode="decimal" min="0" max="366" step="0.5" data-days></label>' +
+        '<small class="line-label"></small>' +
+      '</div>';
+    $('[data-amount]', row).value = line.amount == null || line.amount === '' ? '' : line.amount;
+    if (line.amount == null && line.label) row.classList.add('needs-amount');
+    $('[data-days]', row).value = line.days || '';
+    // Show the payslip's own wording only when it says more than the type name.
+    var same = line.label && norm(line.label) === norm(kindName(line.kind));
+    $('.line-label', row).textContent = same ? '' : (line.label || '');
+    row.setAttribute('data-label', line.label || '');
+    syncRow(row);
+    $(side === 'earn' ? '#earn-lines' : '#deduct-lines').appendChild(row);
+    return row;
+  }
+
+  function syncRow(row) {
+    var k = $('[data-k]', row).value;
+    $('.line-days', row).hidden = !window.Payslip.KINDS[k].days;
+  }
+
+  function readRows() {
+    var out = [];
+    slipForm.querySelectorAll('.line-row').forEach(function (row) {
+      var amount = readAmount($('[data-amount]', row));
+      if (isNaN(amount) || !amount) return;
+      var kind = $('[data-k]', row).value;
+      var line = { kind: kind, amount: amount };
+      var label = row.getAttribute('data-label');
+      if (label) line.label = label;
+      var days = Number($('[data-days]', row).value);
+      if (window.Payslip.KINDS[kind].days && days > 0) line.days = days;
+      out.push(line);
+    });
+    return out;
+  }
+
+  function recalc() {
+    var tot = payslipTotals({ lines: readRows() });
+    $('#calc-gross').textContent = money.format(tot.gross);
+    $('#calc-deduct').textContent = '−' + money.format(tot.deduct);
+    $('#calc-net').textContent = money.format(tot.net);
+    var warn = $('#payslip-mismatch');
+    if (detectedNet != null && Math.abs(detectedNet - tot.net) > 0.05) {
+      warn.hidden = false;
+      warn.textContent = t('mismatch', { net: money.format(detectedNet), calc: money.format(tot.net) });
+    } else {
+      warn.hidden = true;
+    }
+  }
+
+  slipForm.addEventListener('input', recalc);
+  slipForm.addEventListener('change', function (e) {
+    if (e.target.matches('[data-k]')) syncRow(e.target.closest('.line-row'));
+    recalc();
+  });
+  slipForm.addEventListener('click', function (e) {
+    var del = e.target.closest('.line-del');
+    if (del) { del.closest('.line-row').remove(); recalc(); return; }
+    var add = e.target.closest('[data-add-line]');
+    if (add) { $('[data-amount]', addLineRow(add.getAttribute('data-add-line'))).focus(); }
+  });
+
+  // Earnings that Social Security and IRS are worked out on (the meal allowance is left out).
+  function taxableBase() {
+    return readRows().filter(function (l) { return window.Payslip.KINDS[l.kind].side === 'earn' && l.kind !== 'meal'; })
+      .reduce(function (s, l) { return s + l.amount; }, 0);
+  }
+
+  function setDeduction(kind, amount) {
+    var row = null;
+    slipForm.querySelectorAll('#deduct-lines .line-row').forEach(function (r) { if ($('[data-k]', r).value === kind) row = r; });
+    if (!row) row = addLineRow('deduct', { kind: kind, amount: '' });
+    $('[data-amount]', row).value = round2(amount).toFixed(2);
+    recalc();
+  }
+  $('#quick-ss').addEventListener('click', function () { setDeduction('ss', taxableBase() * 0.11); });
+  $('#quick-irs').addEventListener('click', function () {
+    var rate = Number(String($('#irs-rate').value).replace(',', '.'));
+    if (!(rate >= 0 && rate <= 60)) { $('#irs-rate').focus(); return; }
+    setDeduction('irs', taxableBase() * rate / 100);
+  });
+
+  function openPayslipForm(slip, scanned) {
+    editingSlipId = slip ? slip.id : null;
+    detectedNet = scanned ? scanned.detectedNet : null;
+    slipForm.reset();
+    showError(slipForm, null);
+    $('#earn-lines').innerHTML = '';
+    $('#deduct-lines').innerHTML = '';
+    var f = slipForm.elements;
+    f.incomeId.innerHTML = '<option value="">—</option>' + state.income.map(function (inc) {
+      return '<option value="' + inc.id + '">' + escapeHtml(inc.name) + '</option>';
+    }).join('');
+    var now = today();
+    f.month.value = (slip && slip.month) || (scanned && scanned.month) || monthKey(now.getFullYear(), now.getMonth());
+    f.incomeId.value = slip ? (slip.incomeId || '') : (state.income.length ? state.income[0].id : '');
+    var lines = slip ? slip.lines : (scanned ? scanned.lines : []);
+    lines.forEach(function (l) { addLineRow(window.Payslip.KINDS[l.kind].side, l); });
+    if (!lines.some(function (l) { return window.Payslip.KINDS[l.kind].side === 'earn'; })) addLineRow('earn');
+    $('#payslip-check').hidden = !scanned;
+    $('#payslip-contract').hidden = !(scanned && scanned.looksLikeContract);
+    $('#ocr-details').hidden = !(scanned && scanned.text);
+    $('#ocr-text').textContent = scanned ? scanned.text : '';
+    $('[data-delete]', slipForm).hidden = !slip;
+    recalc();
+    openDialog(slipDlg);
+  }
+
+  slipForm.addEventListener('submit', function (e) {
+    e.preventDefault();
+    var f = slipForm.elements;
+    if (!/^\d{4}-\d{2}$/.test(f.month.value)) return showError(slipForm, t('errMonth'), f.month);
+    var lines = readRows();
+    if (!lines.length) return showError(slipForm, t('errNoLines'));
+    var incomeId = f.incomeId.value || null;
+    // One payslip per income card per month: a new one for the same month replaces the old one.
+    state.payslips = state.payslips.filter(function (p) {
+      return p.id === editingSlipId || !(incomeId && p.incomeId === incomeId && p.month === f.month.value);
+    });
+    var slip = editingSlipId && find(state.payslips, editingSlipId);
+    if (!slip) { slip = { id: newId() }; state.payslips.push(slip); }
+    slip.month = f.month.value;
+    slip.incomeId = incomeId;
+    slip.lines = lines;
+    // For a variable income, the payslip's net is that month's logged amount.
+    var inc = incomeId && find(state.income, incomeId);
+    if (inc && inc.kind === 'variable') {
+      inc.entries = inc.entries || {};
+      inc.entries[slip.month] = payslipTotals(slip).net;
+    }
+    save();
+    render();
+    closeDialog(slipDlg);
+  });
+
+  $('[data-delete]', slipForm).addEventListener('click', function () {
+    if (editingSlipId && deleteSlip(editingSlipId)) closeDialog(slipDlg);
+  });
+
+  function deleteSlip(id) {
+    var slip = find(state.payslips, id);
+    if (!slip) return false;
+    if (!confirm(t('confirmDelete', { name: t('payslips') + ' · ' + monthKeyLabel(slip.month) }))) return false;
+    state.payslips = state.payslips.filter(function (p) { return p.id !== id; });
+    save();
+    render();
+    return true;
+  }
+
+  // ---------- Extra pay form ----------
+  var extraDlg = $('#extra-dialog');
+  var extraForm = $('#extra-form');
+  var editingExtraId = null;
+
+  function openExtraForm(x) {
+    editingExtraId = x ? x.id : null;
+    extraForm.reset();
+    showError(extraForm, null);
+    var f = extraForm.elements;
+    f.kind.innerHTML = Object.keys(window.Payslip.KINDS)
+      .filter(function (k) { return window.Payslip.KINDS[k].extra || k === 'otherEarn'; })
+      .map(function (k) { return '<option value="' + k + '">' + escapeHtml(kindName(k)) + '</option>'; }).join('');
+    var now = today();
+    f.kind.value = x ? x.kind : 'holiday';
+    f.label.value = x ? (x.label || '') : '';
+    f.month.value = x ? x.month : monthKey(now.getFullYear(), now.getMonth());
+    f.amount.value = x ? x.amount : '';
+    f.days.value = x && x.days ? x.days : '';
+    $('[data-delete]', extraForm).hidden = !x;
+    openDialog(extraDlg);
+  }
+
+  extraForm.addEventListener('submit', function (e) {
+    e.preventDefault();
+    var f = extraForm.elements;
+    if (!/^\d{4}-\d{2}$/.test(f.month.value)) return showError(extraForm, t('errMonth'), f.month);
+    var amount = readAmount(f.amount);
+    if (isNaN(amount) || !amount) return showError(extraForm, t('errAmount'), f.amount);
+    var days = Number(String(f.days.value).replace(',', '.'));
+    var x = editingExtraId && find(state.extras, editingExtraId);
+    if (!x) { x = { id: newId() }; state.extras.push(x); }
+    x.kind = f.kind.value;
+    x.label = f.label.value.trim();
+    x.month = f.month.value;
+    x.amount = amount;
+    x.days = days > 0 ? days : null;
+    save();
+    render();
+    closeDialog(extraDlg);
+  });
+
+  $('[data-delete]', extraForm).addEventListener('click', function () {
+    if (editingExtraId && deleteItem('extras', editingExtraId)) closeDialog(extraDlg);
+  });
+  $('#add-extra').addEventListener('click', function () { openExtraForm(null); });
+
   // ---------- Delete ----------
   function deleteItem(listName, id) {
     var list = state[listName];
     var item = find(list, id);
     if (!item) return false;
-    if (!confirm(t('confirmDelete', { name: item.name }))) return false;
+    if (!confirm(t('confirmDelete', { name: item.name || item.label || kindName(item.kind) }))) return false;
     state[listName] = list.filter(function (x) { return x.id !== id; });
+    // Payslips of a deleted income card stay, just without the link.
+    if (listName === 'income') state.payslips.forEach(function (p) { if (p.incomeId === id) p.incomeId = null; });
     save();
     render();
     return true;
@@ -570,6 +966,10 @@
       case 'delete-income': deleteItem('income', id); break;
       case 'edit-payment': openPaymentForm(find(state.payments, id)); break;
       case 'delete-payment': deleteItem('payments', id); break;
+      case 'edit-payslip': openPayslipForm(find(state.payslips, id), null); break;
+      case 'delete-payslip': deleteSlip(id); break;
+      case 'edit-extra': openExtraForm(find(state.extras, id)); break;
+      case 'delete-extra': deleteItem('extras', id); break;
     }
   });
   $('#add-income').addEventListener('click', function () { openIncomeForm(null); });
@@ -596,7 +996,7 @@
         var data = JSON.parse(reader.result);
         if (!data || !Array.isArray(data.income) || !Array.isArray(data.payments)) throw new Error('bad');
         if (!confirm(t('confirmRestore'))) return;
-        state = data;
+        state = withDefaults(data);
         save();
         render();
       } catch (err) {

@@ -5,10 +5,13 @@ A simple, private dashboard for your monthly income and bills.
 - **Income**: fixed (same amount every month) or variable (you log each month's amount from your payslip or bank deposit). End date is *Indefinite* by default.
 - **Payments**: your bills, sorted by the next due date.
 - **Summary**: total income this month, total to pay this month, and what's left over.
+- **Payslips**: take a photo of a Portuguese payslip (recibo de vencimento) or contract, or pick a picture. The app reads it, sorts every line into earnings and deductions (IRS, Segurança Social, …) in your language, and shows gross, deductions and net. You check the numbers before saving. A saved payslip's net becomes that month's real income.
+- **Extra pay (salários e dias extraordinários)**: subsídios de férias/Natal, duodécimos, overtime, work on rest days or holidays, prémios… Extras found on a payslip appear automatically; you can also add them by hand, with days.
+- 39 European languages.
 - Day 🌞 / Night 🌙 toggle (your choice is remembered).
 - Everything is saved **only in your browser on your device**. There is no server and no account.
 
-The app is just three files: `index.html`, `styles.css` and `app.js`. There is nothing to install.
+The app is plain HTML, CSS and JavaScript with no build step and nothing to install. Payslip reading uses [Tesseract.js](https://github.com/naptha/tesseract.js) (Apache 2.0), bundled in `vendor/tesseract/` with its Portuguese language data, so photos are read inside the browser and never uploaded. The first scan downloads about 9 MB from wherever the app is hosted.
 
 ---
 
