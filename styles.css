@@ -811,3 +811,6 @@ html, body, button, a, input, select, textarea, label, .card { touch-action: man
 .keys button { touch-action: none; }
 .keys button.pressed { animation: keyPress .18s ease; }
 @keyframes keyPress { 50% { transform: scale(.9); background: var(--surface-2); } }
+/* Forms scroll on their own without dragging the page behind them */
+.sheet { overscroll-behavior: contain; -webkit-overflow-scrolling: touch; }
+html.scroll-locked, html.scroll-locked body { overscroll-behavior: none; }

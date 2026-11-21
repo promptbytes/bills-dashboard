@@ -760,7 +760,29 @@
   }
 
   // ---------- Dialog helpers ----------
+  // While a form is open the page behind it stays still. iPhone Safari ignores overflow: hidden
+  // for finger scrolling, so the page is pinned in place and put back where it was afterwards.
+  var scrollLock = { on: false, y: 0 };
+  function lockScroll() {
+    if (scrollLock.on) return;
+    scrollLock.on = true;
+    scrollLock.y = window.scrollY || window.pageYOffset || 0;
+    var b = document.body.style;
+    b.position = 'fixed'; b.top = -scrollLock.y + 'px'; b.left = '0'; b.right = '0'; b.width = '100%';
+    document.documentElement.classList.add('scroll-locked');
+  }
+  function unlockScroll() {
+    if (!scrollLock.on || document.querySelector('dialog[open]')) return;
+    scrollLock.on = false;
+    var b = document.body.style;
+    b.position = ''; b.top = ''; b.left = ''; b.right = ''; b.width = '';
+    document.documentElement.classList.remove('scroll-locked');
+    window.scrollTo(0, scrollLock.y);
+  }
+
   function openDialog(dlg) {
+    lockScroll();
+    if (dlg.open) return;
     if (typeof dlg.showModal === 'function') dlg.showModal();
     else dlg.setAttribute('open', '');
   }
@@ -774,6 +796,7 @@
     setTimeout(done, 160);
   }
   document.querySelectorAll('dialog').forEach(function (dlg) {
+    dlg.addEventListener('close', unlockScroll);   // however it closes (Save, Cancel, outside tap, Escape)
     dlg.addEventListener('click', function (e) { if (e.target === dlg) closeDialog(dlg); }); // tap outside closes
     dlg.querySelectorAll('[data-cancel]').forEach(function (b) {
       b.addEventListener('click', function () { closeDialog(dlg); });
