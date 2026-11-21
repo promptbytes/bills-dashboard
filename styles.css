@@ -806,3 +806,8 @@ dialog.sheet.closing::backdrop { opacity: 0; transition: opacity .16s ease; }
 #pin-cancel { display: block; margin: 0 auto; }
 /* No double-tap zoom anywhere; taps also respond without the 300 ms wait */
 html, body, button, a, input, select, textarea, label, .card { touch-action: manipulation; }
+/* PIN screen: no pinch or double-tap zoom at all (only vertical scrolling on very small screens) */
+.lock, .lock * { touch-action: pan-y; -webkit-user-select: none; user-select: none; -webkit-touch-callout: none; }
+.keys button { touch-action: none; }
+.keys button.pressed { animation: keyPress .18s ease; }
+@keyframes keyPress { 50% { transform: scale(.9); background: var(--surface-2); } }

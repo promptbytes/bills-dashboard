@@ -1630,13 +1630,27 @@
       });
     }
   }
+  // Keys react the moment a finger touches them: faster typing, and two quick taps on
+  // the same key can never turn into a double-tap zoom. Mouse clicks still work too.
+  var lastKeyTouch = 0;
+  $('#pin-keys').addEventListener('touchstart', function (e) {
+    var b = e.target.closest('button'); if (!b || b.disabled) return;
+    e.preventDefault();
+    lastKeyTouch = Date.now();
+    pressKey(b);
+  }, { passive: false });
   $('#pin-keys').addEventListener('click', function (e) {
+    if (Date.now() - lastKeyTouch < 800) return;      // already handled by touchstart
     var b = e.target.closest('button'); if (!b) return;
+    pressKey(b);
+  });
+  function pressKey(b) {
+    b.classList.remove('pressed'); void b.offsetWidth; b.classList.add('pressed');
     var k = b.getAttribute('data-key');
     if (k === 'back') { pinBuf = pinBuf.slice(0, -1); return drawDots(); }
     if (k === 'ok') return pinSubmit();
     pinDigit(b.textContent.trim());
-  });
+  }
   document.addEventListener('keydown', function (e) {
     if (lockEl.hidden) return;
     if (/^\d$/.test(e.key)) pinDigit(e.key);
