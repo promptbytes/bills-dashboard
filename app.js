@@ -225,6 +225,13 @@
     return data;
   }
 
+  // A fixed income entered as gross: what arrives after Social Security (11%) and IRS withholding.
+  function incomeNet(inc) {
+    if (!inc.gross) return inc.amount;
+    var cut = (inc.ss ? 0.11 : 0) + (inc.irsRate || 0) / 100;
+    return round2(inc.amount * (1 - cut));
+  }
+
   // The payslip saved for this income card in this month, if any.
   function payslipFor(incomeId, key) {
     for (var i = 0; i < state.payslips.length; i++) {
@@ -344,7 +351,7 @@
         var logged = inc.entries && inc.entries[key];
         if (typeof logged === 'number') r.income += logged;
         else if (happensInMonth(inc, y, m)) r.notLogged.push(inc.name);
-      } else if (happensInMonth(inc, y, m)) r.income += inc.amount;
+      } else if (happensInMonth(inc, y, m)) r.income += incomeNet(inc);
     });
     // Extra pay entered by hand counts too (extras read from a payslip are already in its net).
     state.extras.forEach(function (x) { if (x.month === key) r.income += x.amount; });
@@ -406,7 +413,7 @@
           var keys = Object.keys(inc.entries || {}).sort();
           lastKey = keys[keys.length - 1];
         } else {
-          amount = money.format(inc.amount);
+          amount = money.format(incomeNet(inc));
         }
         var inMonth = datesInMonth(inc, y, m)[0];
         var due = current ? dueLabel(next, now, 'payday')
@@ -420,6 +427,8 @@
             '</div>' +
             '<div class="badges">' +
               '<span class="badge">' + escapeHtml(t(isVar ? 'variable' : 'fixed')) + '</span>' +
+              (!isVar && inc.gross ? '<span class="badge">' + escapeHtml(t('grossBadge', { amount: money.format(inc.amount) }) +
+                (inc.irsRate ? ' · IRS ' + String(inc.irsRate).replace('.', (1.5).toLocaleString(lang).charAt(1)) + '%' : '') + (inc.ss ? ' · SS 11%' : '')) + '</span>' : '') +
               '<span class="badge ' + (due.cls === 'warn' ? 'ok' : due.cls) + '">' + escapeHtml(due.text) + '</span>' +
               (slip ? '<span class="badge ok">' + escapeHtml(t('net')) + ': ' + money.format(payslipTotals(slip).net) + '</span>' : '') +
             '</div>' +
@@ -556,7 +565,7 @@
     var key = monthKey(d.getFullYear(), d.getMonth()), slip = payslipFor(inc.id, key);
     if (slip) return payslipTotals(slip).net;
     if (inc.kind === 'variable') return inc.entries && typeof inc.entries[key] === 'number' ? inc.entries[key] : 0;
-    return inc.amount;
+    return incomeNet(inc);
   }
   function datesBetween(item, from, to) {        // dates in [from, to)
     var out = [], d = new Date(from.getFullYear(), from.getMonth(), 1);
@@ -686,7 +695,7 @@
       });
       state.income.forEach(function (inc) {
         datesInMonth(inc, yy, mm).forEach(function (d) {
-          if (d >= now && d <= until) items.push({ d: d, name: inc.name, amount: inc.kind === 'fixed' ? inc.amount : null, bill: false });
+          if (d >= now && d <= until) items.push({ d: d, name: inc.name, amount: inc.kind === 'fixed' ? incomeNet(inc) : null, bill: false });
         });
       });
     }
@@ -984,12 +993,21 @@
   function syncIncomeForm() {
     var f = incomeForm.elements;
     var isVar = f.kind.value === 'variable';
-    $('[data-fixed-only]', incomeForm).hidden = isVar;
+    incomeForm.querySelectorAll('[data-fixed-only]').forEach(function (el) { el.hidden = isVar; });
     $('[data-kind-help]', incomeForm).textContent = t(isVar ? 'variableHelp' : 'fixedHelp');
     var endInput = $('[data-end-date]', incomeForm);
     endInput.hidden = f.endMode.value !== 'date';
+    var gross = !isVar && f.isGross.checked;
+    $('[data-gross-box]', incomeForm).hidden = !gross;
+    var rateTxt = f.irsRate.value.trim(), rate = rateTxt ? parseNumber(rateTxt) : 0;
+    var rateOk = !rateTxt || (rate >= 0 && rate <= 60);
+    f.irsRate.classList.toggle('invalid', !rateOk);
+    var amt = readAmount(f.amount), prev = $('[data-net-preview]', incomeForm);
+    prev.hidden = !(gross && amt > 0 && rateOk);
+    if (!prev.hidden) prev.textContent = t('netPerMonth', { amount: money.format(incomeNet({ amount: amt, gross: true, ss: f.ss.checked, irsRate: rate })) });
   }
   incomeForm.addEventListener('change', syncIncomeForm);
+  incomeForm.addEventListener('input', syncIncomeForm);
 
   function openIncomeForm(inc) {
     editingIncomeId = inc ? inc.id : null;
@@ -1002,6 +1020,9 @@
       f.name.value = inc.name;
       f.kind.value = inc.kind;
       f.amount.value = inc.kind === 'fixed' ? inc.amount : '';
+      f.isGross.checked = !!inc.gross;
+      f.irsRate.value = inc.irsRate ? String(inc.irsRate).replace('.', ',') : '';
+      f.ss.checked = inc.gross ? !!inc.ss : true;
       f.startDate.value = inc.startDate;
       f.day.value = inc.day;
       f.endMode.value = inc.endDate ? 'date' : 'indefinite';
@@ -1027,7 +1048,14 @@
       if (isNaN(amount)) return showError(incomeForm, t('errAmount'), f.amount);
     }
     var existing = editingIncomeId && find(state.income, editingIncomeId);
-    var record = Object.assign(existing || { id: newId(), entries: {} }, common, { kind: kind, amount: amount });
+    var gross = kind === 'fixed' && f.isGross.checked, irs = 0;
+    if (gross && f.irsRate.value.trim()) {
+      irs = parseNumber(f.irsRate.value);
+      if (!(irs >= 0 && irs <= 60)) return showError(incomeForm, t('errAmount'), f.irsRate);
+    }
+    var record = Object.assign(existing || { id: newId(), entries: {} }, common, {
+      kind: kind, amount: amount, gross: gross, irsRate: gross ? irs : 0, ss: gross && f.ss.checked
+    });
     if (!record.entries) record.entries = {};
     if (!existing) state.income.push(record);
     save();

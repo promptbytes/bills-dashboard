@@ -852,3 +852,9 @@ body[data-anim] .safe-card { animation: fadeUp .45s var(--ease-out) both; }
 .scan-why { margin: 4px 0 0; }
 .scan-issues { list-style: none; margin: -4px 0 12px; padding: 0; display: grid; gap: 3px; }
 .scan-issues li::before { content: "⚠︎ "; font-style: normal; color: var(--owe); }
+/* Gross salary: IRS % and Social Security on the income card */
+.gross-box { margin: -4px 0 12px; padding: 12px; border-radius: var(--radius-sm); background: var(--surface-2); border: 1px solid var(--border); }
+.gross-box .field { margin-bottom: 8px; }
+.gross-box input[type="text"] { background: var(--surface); }
+.ss-check { align-self: end; margin: 0 0 12px; }
+.gross-box .notice { margin: 4px 0 0; }

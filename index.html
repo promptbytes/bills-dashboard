@@ -194,6 +194,26 @@
         <input name="amount" type="text" inputmode="decimal" autocomplete="off" placeholder="0.00">
       </label>
 
+      <div data-fixed-only>
+        <label class="check-field">
+          <input type="checkbox" name="isGross">
+          <span data-i18n="isGross">This amount is before tax (gross)</span>
+        </label>
+        <div class="gross-box" data-gross-box hidden>
+          <div class="field-row">
+            <label class="field">
+              <span data-i18n="irsRate">IRS withholding (%)</span>
+              <input name="irsRate" type="text" inputmode="decimal" autocomplete="off" placeholder="0">
+            </label>
+            <label class="check-field ss-check">
+              <input type="checkbox" name="ss" checked>
+              <span data-i18n="quickSS">Social Security 11%</span>
+            </label>
+          </div>
+          <p class="notice ok" data-net-preview></p>
+        </div>
+      </div>
+
       <div class="field-row">
         <label class="field">
           <span data-i18n="startDate">Start date</span>
