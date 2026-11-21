@@ -799,3 +799,8 @@ dialog.sheet.closing::backdrop { opacity: 0; transition: opacity .16s ease; }
   *, *::before, *::after { animation: none !important; transition: none !important; }
   .reveal { opacity: 1; transform: none; }
 }
+/* PIN of any length: dots wrap onto more lines; OK key */
+.pin-dots { flex-wrap: wrap; max-width: 260px; margin-left: auto; margin-right: auto; row-gap: 10px; }
+.keys .key-ok { font-size: 1.05rem; font-weight: 700; background: var(--accent); border-color: var(--accent); color: var(--accent-text); }
+.keys .key-ok:disabled { opacity: .45; cursor: default; }
+#pin-cancel { display: block; margin: 0 auto; }

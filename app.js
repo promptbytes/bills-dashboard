@@ -1557,6 +1557,7 @@
 
   // ---------- PIN lock ----------
   var PIN_KEY = 'bills-pin', LOCK_AFTER_MS = 60000;
+  var PIN_MIN = 4, PIN_MAX = 64;      // any length from 4 digits up; numbers only
   var lockEl = $('#lock'), pinBuf = '', pinMode = null, firstPin = null, hiddenAt = 0;
 
   function getPin() { try { return JSON.parse(localStorage.getItem(PIN_KEY) || 'null'); } catch (e) { return null; } }
@@ -1574,14 +1575,20 @@
   function showLock(mode, msgKey) {
     pinMode = mode; pinBuf = ''; firstPin = null;
     $('#lock-msg').textContent = t(msgKey);
-    $('#pin-cancel').style.visibility = mode === 'unlock' ? 'hidden' : 'visible';
+    $('#pin-cancel').hidden = mode === 'unlock';
     $('#pin-forgot').hidden = mode !== 'unlock';
     drawDots();
     lockEl.hidden = false;
     document.body.classList.add('locked');
   }
   function hideLock() { lockEl.hidden = true; pinMode = null; document.body.classList.remove('locked'); }
-  function drawDots() { lockEl.querySelectorAll('#pin-dots span').forEach(function (d, i) { d.classList.toggle('f', i < pinBuf.length); }); }
+  // One dot per digit typed (at least 4 placeholders), so long PINs show their full length.
+  function drawDots() {
+    var n = Math.max(PIN_MIN, pinBuf.length), html = '';
+    for (var i = 0; i < n; i++) html += '<span' + (i < pinBuf.length ? ' class="f"' : '') + '></span>';
+    $('#pin-dots').innerHTML = html;
+    $('#pin-keys [data-key=ok]').disabled = pinBuf.length === 0;
+  }
   function pinError(key) {
     $('#lock-msg').textContent = t(key);
     lockEl.querySelector('.lock-inner').classList.remove('shake'); void lockEl.offsetWidth;
@@ -1590,9 +1597,14 @@
   }
   var pinBusy = false;
   function pinDigit(d) {
-    if (pinBusy || pinBuf.length >= 4) return;
+    if (pinBusy || pinBuf.length >= PIN_MAX) return;
     pinBuf += d; drawDots();
-    if (pinBuf.length === 4) pinComplete();
+  }
+  // OK: a new PIN must have at least 4 digits; when unlocking, any typed PIN is checked.
+  function pinSubmit() {
+    if (pinBusy || !pinBuf) return;
+    if ((pinMode === 'new' || pinMode === 'confirm') && pinBuf.length < PIN_MIN) return pinError('newPin');
+    pinComplete();
   }
   function pinComplete() {
     var stored = getPin(), entered = pinBuf;
@@ -1621,15 +1633,17 @@
   $('#pin-keys').addEventListener('click', function (e) {
     var b = e.target.closest('button'); if (!b) return;
     var k = b.getAttribute('data-key');
-    if (k === 'cancel') return hideLock();
     if (k === 'back') { pinBuf = pinBuf.slice(0, -1); return drawDots(); }
+    if (k === 'ok') return pinSubmit();
     pinDigit(b.textContent.trim());
   });
   document.addEventListener('keydown', function (e) {
     if (lockEl.hidden) return;
     if (/^\d$/.test(e.key)) pinDigit(e.key);
     else if (e.key === 'Backspace') { pinBuf = pinBuf.slice(0, -1); drawDots(); }
+    else if (e.key === 'Enter') { e.preventDefault(); pinSubmit(); }
   });
+  $('#pin-cancel').addEventListener('click', hideLock);
   $('#pin-forgot').addEventListener('click', function () {
     if (!confirm(t('forgotConfirm'))) return;
     try { localStorage.removeItem(STORAGE_KEY); localStorage.removeItem(PIN_KEY); } catch (e) {}
