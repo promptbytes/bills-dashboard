@@ -487,10 +487,25 @@
     if (input) { input.classList.add('invalid'); input.focus(); }
   }
 
+  // Reads numbers typed the Portuguese way ("13,1", "1.450,50") as well as "13.1" or "1450.50".
+  function parseNumber(text) {
+    var v = String(text).replace(/[\s€%\u00a0]/g, '');
+    if (!v) return NaN;
+    var lastComma = v.lastIndexOf(','), lastDot = v.lastIndexOf('.');
+    if (lastComma > -1 && lastDot > -1) {
+      // Both used: the last one is the decimal mark, the other groups thousands.
+      v = lastComma > lastDot ? v.replace(/\./g, '').replace(',', '.') : v.replace(/,/g, '');
+    } else if (lastComma > -1) {
+      v = v.replace(',', '.');
+    } else if (/^\d{1,3}(\.\d{3})+$/.test(v)) {
+      v = v.replace(/\./g, '');            // "1.450" means one thousand four hundred and fifty
+    }
+    if (!/^\d*\.?\d+$|^\d+\.$/.test(v)) return NaN;
+    return Number(v);
+  }
+
   function readAmount(input) {
-    var v = String(input.value).replace(',', '.').trim();
-    if (v === '') return NaN;
-    var n = Number(v);
+    var n = parseNumber(input.value);
     return isFinite(n) && n >= 0 ? round2(n) : NaN;
   }
 
@@ -741,11 +756,11 @@
     row.innerHTML =
       '<div class="line-main">' +
         '<select class="select" data-k aria-label="' + escapeHtml(t('type')) + '">' + kindOptions(side, line.kind) + '</select>' +
-        '<input type="number" inputmode="decimal" min="0" step="0.01" placeholder="0.00" data-amount aria-label="' + escapeHtml(t('amount')) + '">' +
+        '<input type="text" inputmode="decimal" autocomplete="off" placeholder="0.00" data-amount aria-label="' + escapeHtml(t('amount')) + '">' +
         '<button type="button" class="line-del" aria-label="' + escapeHtml(t('delete')) + '">×</button>' +
       '</div>' +
       '<div class="line-extra">' +
-        '<label class="line-days"><span>' + escapeHtml(t('days')) + '</span><input type="number" inputmode="decimal" min="0" max="366" step="0.5" data-days></label>' +
+        '<label class="line-days"><span>' + escapeHtml(t('days')) + '</span><input type="text" inputmode="decimal" autocomplete="off" data-days></label>' +
         '<small class="line-label"></small>' +
       '</div>';
     $('[data-amount]', row).value = line.amount == null || line.amount === '' ? '' : line.amount;
@@ -774,7 +789,7 @@
       var line = { kind: kind, amount: amount };
       var label = row.getAttribute('data-label');
       if (label) line.label = label;
-      var days = Number($('[data-days]', row).value);
+      var days = parseNumber($('[data-days]', row).value);
       if (window.Payslip.KINDS[kind].days && days > 0) line.days = days;
       out.push(line);
     });
@@ -795,14 +810,70 @@
     }
   }
 
-  slipForm.addEventListener('input', recalc);
+  // Social Security and IRS lines added with the buttons below follow the earnings automatically
+  // (they carry data-auto). Typing a different amount into such a line turns that off.
+  function findDeductRow(kind) {
+    var row = null;
+    slipForm.querySelectorAll('#deduct-lines .line-row').forEach(function (r) { if ($('[data-k]', r).value === kind) row = r; });
+    return row;
+  }
+
+  function irsRate() {
+    var field = $('#irs-rate');
+    if (!field.value.trim()) { field.classList.remove('invalid'); return null; }
+    var rate = parseNumber(field.value);
+    var ok = rate >= 0 && rate <= 60;
+    field.classList.toggle('invalid', !ok);
+    return ok ? rate : NaN;
+  }
+
+  function setAutoDeduction(kind) {
+    var row = findDeductRow(kind);
+    if (!row) row = addLineRow('deduct', { kind: kind, amount: '' });
+    row.setAttribute('data-auto', kind);
+    row.classList.remove('needs-amount');
+  }
+
+  function applyAuto() {
+    var base = taxableBase();
+    slipForm.querySelectorAll('.line-row[data-auto]').forEach(function (row) {
+      var kind = row.getAttribute('data-auto');
+      var rate = kind === 'ss' ? 11 : irsRate();
+      if (rate == null || isNaN(rate)) return;   // keep the last good amount while the rate is being retyped
+      $('[data-amount]', row).value = round2(base * rate / 100).toFixed(2);
+    });
+  }
+
+  slipForm.addEventListener('input', function (e) {
+    var row = e.target.closest('.line-row');
+    if (row && e.target.matches('[data-amount]') && row.hasAttribute('data-auto')) {
+      // A hand-typed amount wins over the automatic one.
+      if (row.getAttribute('data-auto') === 'irs') $('#irs-rate').value = '';
+      row.removeAttribute('data-auto');
+    }
+    if (e.target.id === 'irs-rate') {
+      var rate = irsRate();
+      if (rate != null && !isNaN(rate)) setAutoDeduction('irs');
+    }
+    applyAuto();
+    recalc();
+  });
   slipForm.addEventListener('change', function (e) {
-    if (e.target.matches('[data-k]')) syncRow(e.target.closest('.line-row'));
+    if (e.target.matches('[data-k]')) {
+      var row = e.target.closest('.line-row');
+      syncRow(row);
+      row.removeAttribute('data-auto');
+    }
+    applyAuto();
     recalc();
   });
   slipForm.addEventListener('click', function (e) {
     var del = e.target.closest('.line-del');
-    if (del) { del.closest('.line-row').remove(); recalc(); return; }
+    if (del) {
+      var gone = del.closest('.line-row');
+      if (gone.getAttribute('data-auto') === 'irs') $('#irs-rate').value = '';
+      gone.remove(); applyAuto(); recalc(); return;
+    }
     var add = e.target.closest('[data-add-line]');
     if (add) { $('[data-amount]', addLineRow(add.getAttribute('data-add-line'))).focus(); }
   });
@@ -813,18 +884,11 @@
       .reduce(function (s, l) { return s + l.amount; }, 0);
   }
 
-  function setDeduction(kind, amount) {
-    var row = null;
-    slipForm.querySelectorAll('#deduct-lines .line-row').forEach(function (r) { if ($('[data-k]', r).value === kind) row = r; });
-    if (!row) row = addLineRow('deduct', { kind: kind, amount: '' });
-    $('[data-amount]', row).value = round2(amount).toFixed(2);
-    recalc();
-  }
-  $('#quick-ss').addEventListener('click', function () { setDeduction('ss', taxableBase() * 0.11); });
+  $('#quick-ss').addEventListener('click', function () { setAutoDeduction('ss'); applyAuto(); recalc(); });
   $('#quick-irs').addEventListener('click', function () {
-    var rate = Number(String($('#irs-rate').value).replace(',', '.'));
-    if (!(rate >= 0 && rate <= 60)) { $('#irs-rate').focus(); return; }
-    setDeduction('irs', taxableBase() * rate / 100);
+    var rate = irsRate();
+    if (rate == null || isNaN(rate)) { $('#irs-rate').classList.add('invalid'); $('#irs-rate').focus(); return; }
+    setAutoDeduction('irs'); applyAuto(); recalc();
   });
 
   function openPayslipForm(slip, scanned) {
@@ -849,6 +913,13 @@
     $('#ocr-details').hidden = !(scanned && scanned.text);
     $('#ocr-text').textContent = scanned ? scanned.text : '';
     $('[data-delete]', slipForm).hidden = !slip;
+    $('#irs-rate').classList.remove('invalid');
+    if (slip && slip.irsRate != null) {
+      $('#irs-rate').value = String(slip.irsRate).replace('.', ',');
+      setAutoDeduction('irs');
+    }
+    if (slip && slip.autoSS) setAutoDeduction('ss');
+    applyAuto();
     recalc();
     openDialog(slipDlg);
   }
@@ -869,6 +940,10 @@
     slip.month = f.month.value;
     slip.incomeId = incomeId;
     slip.lines = lines;
+    var irsRow = findDeductRow('irs');
+    var rate = irsRate();
+    slip.irsRate = irsRow && irsRow.getAttribute('data-auto') === 'irs' && rate != null && !isNaN(rate) ? rate : null;
+    slip.autoSS = !!(findDeductRow('ss') && findDeductRow('ss').getAttribute('data-auto') === 'ss');
     // For a variable income, the payslip's net is that month's logged amount.
     var inc = incomeId && find(state.income, incomeId);
     if (inc && inc.kind === 'variable') {
@@ -923,7 +998,7 @@
     if (!/^\d{4}-\d{2}$/.test(f.month.value)) return showError(extraForm, t('errMonth'), f.month);
     var amount = readAmount(f.amount);
     if (isNaN(amount) || !amount) return showError(extraForm, t('errAmount'), f.amount);
-    var days = Number(String(f.days.value).replace(',', '.'));
+    var days = parseNumber(f.days.value);
     var x = editingExtraId && find(state.extras, editingExtraId);
     if (!x) { x = { id: newId() }; state.extras.push(x); }
     x.kind = f.kind.value;
