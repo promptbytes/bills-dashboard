@@ -7,6 +7,9 @@
   <meta name="theme-color" content="#f4f5f7" id="theme-color">
   <link rel="icon" href="icon.svg" type="image/svg+xml">
   <link rel="manifest" href="manifest.json">
+  <link rel="apple-touch-icon" href="icon-180.png">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="mobile-web-app-capable" content="yes">
   <script>
     // Apply the saved theme before the page draws, so it never flashes the wrong colours.
     (function () {
@@ -24,7 +27,6 @@
   <header class="topbar">
     <div class="title-block">
       <h1 data-i18n="appTitle">Bills Dashboard</h1>
-      <p class="month-label" id="month-label"></p>
     </div>
     <div class="controls">
       <label class="lang-picker">
@@ -40,6 +42,12 @@
   </header>
 
   <main>
+    <nav class="monthnav" aria-label="Month">
+      <button type="button" class="navbtn" id="prev-month">‹</button>
+      <button type="button" class="month-current" id="month-current"></button>
+      <button type="button" class="navbtn" id="next-month">›</button>
+    </nav>
+
     <section class="summary">
       <div class="stat">
         <span class="stat-label" data-i18n="income">Income</span>
@@ -49,11 +57,28 @@
         <span class="stat-label" data-i18n="toPay">To pay</span>
         <span class="stat-value owe" id="total-owe">€0</span>
       </div>
+      <div class="stat stat-wide" id="still-stat">
+        <span class="stat-label" data-i18n="stillToPay">Still to pay</span>
+        <span class="stat-value owe" id="still-to-pay">€0</span>
+      </div>
       <div class="stat stat-wide">
         <span class="stat-label" data-i18n="leftOver">Left over</span>
         <span class="stat-value" id="left-over">€0</span>
       </div>
       <p class="summary-note" id="summary-note" hidden></p>
+      <p class="summary-note" id="goals-note" hidden></p>
+    </section>
+
+    <section class="section" aria-labelledby="coming-title">
+      <div class="section-head">
+        <h2 id="coming-title" data-i18n="comingUp">Next 14 days</h2>
+        <span class="badge warn" id="coming-total" hidden></span>
+      </div>
+      <ul class="timeline" id="coming-list"></ul>
+      <div class="remind-box">
+        <p class="help" data-i18n="remindersHelp"></p>
+        <button class="btn btn-ghost btn-small" type="button" id="add-reminders">🔔 <span data-i18n="addReminders">Add reminders to my calendar</span></button>
+      </div>
     </section>
 
     <section class="section" aria-labelledby="income-title">
@@ -71,6 +96,16 @@
       </div>
       <p class="section-hint" data-i18n="sortedHint">Sorted by next due date</p>
       <div class="card-list" id="payment-list"></div>
+    </section>
+
+    <section class="section" aria-labelledby="cat-title" id="cat-section">
+      <div class="section-head"><h2 id="cat-title" data-i18n="whereMoney">Where your money goes</h2></div>
+      <article class="card chart-card" id="cat-chart"></article>
+    </section>
+
+    <section class="section" aria-labelledby="hist-title">
+      <div class="section-head"><h2 id="hist-title" data-i18n="lastMonths">Last 6 months</h2></div>
+      <article class="card chart-card" id="hist-chart"></article>
     </section>
 
     <section class="section" aria-labelledby="payslips-title">
@@ -105,12 +140,26 @@
       <div class="card-list" id="extra-list"></div>
     </section>
 
+    <section class="section" aria-labelledby="goals-title">
+      <div class="section-head">
+        <h2 id="goals-title" data-i18n="goals">Savings goals</h2>
+        <button class="btn btn-primary" type="button" id="add-goal" data-i18n-plus="addGoal">+ Add goal</button>
+      </div>
+      <div id="goal-nudge"></div>
+      <div class="card-list" id="goal-list"></div>
+    </section>
+
     <footer class="footer">
       <p data-i18n="savedLocal">Your data is saved only on this device.</p>
       <div class="footer-actions">
         <button class="btn btn-ghost" type="button" id="export-btn" data-i18n="downloadBackup">Download backup</button>
         <label class="btn btn-ghost" for="import-file" data-i18n="restoreBackup">Restore backup</label>
         <input type="file" id="import-file" accept="application/json,.json" hidden>
+        <button class="btn btn-ghost" type="button" id="export-csv" data-i18n="exportCsv">Export to Excel (.csv)</button>
+      </div>
+      <div class="footer-actions pin-row">
+        <span>🔒 <span data-i18n="pinLock">PIN lock</span></span>
+        <button class="btn btn-ghost btn-small" type="button" id="pin-toggle"></button>
       </div>
     </footer>
   </main>
@@ -181,16 +230,37 @@
       </label>
 
       <label class="field">
-        <span data-i18n="amount">Amount (€)</span>
+        <span data-i18n="category">Category</span>
+        <select name="category" class="select"></select>
+      </label>
+
+      <fieldset class="field">
+        <legend data-i18n="repeats">Repeats</legend>
+        <div class="chips-select">
+          <label><input type="radio" name="repeat" value="weekly"><span data-i18n="r_weekly">Weekly</span></label>
+          <label><input type="radio" name="repeat" value="monthly" checked><span data-i18n="r_monthly">Monthly</span></label>
+          <label><input type="radio" name="repeat" value="quarterly"><span data-i18n="r_quarterly">Every 3 months</span></label>
+          <label><input type="radio" name="repeat" value="yearly"><span data-i18n="r_yearly">Yearly</span></label>
+        </div>
+      </fieldset>
+
+      <label class="check-field">
+        <input type="checkbox" name="variable">
+        <span data-i18n="changesMonthly">Changes each month</span>
+      </label>
+
+      <label class="field">
+        <span data-amount-label data-i18n="amount">Amount (€)</span>
         <input name="amount" type="text" inputmode="decimal" autocomplete="off" required placeholder="0.00">
       </label>
+      <p class="notice" id="set-aside-note" hidden></p>
 
       <div class="field-row">
         <label class="field">
           <span data-i18n="startDate">Start date</span>
           <input name="startDate" type="date" required>
         </label>
-        <label class="field">
+        <label class="field" data-day-field>
           <span data-i18n="dueOnDay">Due on day</span>
           <input name="day" type="number" inputmode="numeric" min="1" max="31" required placeholder="1–31">
         </label>
@@ -342,8 +412,77 @@
     </form>
   </dialog>
 
+  <!-- Savings goal -->
+  <dialog class="sheet" id="goal-dialog">
+    <form method="dialog" id="goal-form" novalidate>
+      <h3 data-i18n="goals">Savings goals</h3>
+      <label class="field">
+        <span data-i18n="name">Name</span>
+        <input name="name" type="text" required maxlength="60" autocomplete="off" placeholder="🏖️">
+      </label>
+      <div class="field-row">
+        <label class="field">
+          <span data-i18n="target">Target (€)</span>
+          <input name="target" type="text" inputmode="decimal" autocomplete="off" required placeholder="0.00">
+        </label>
+        <label class="field">
+          <span data-i18n="savedSoFar">Saved so far (€)</span>
+          <input name="saved" type="text" inputmode="decimal" autocomplete="off" placeholder="0.00">
+        </label>
+      </div>
+      <label class="field">
+        <span><span data-i18n="reachBy">Reach it by</span> <em>(<span data-i18n="optional">optional</span>)</em></span>
+        <input name="by" type="month">
+      </label>
+      <p class="form-error" data-error hidden></p>
+      <div class="form-actions">
+        <button class="btn btn-danger" type="button" data-delete hidden data-i18n="delete">Delete</button>
+        <span class="spacer"></span>
+        <button class="btn btn-ghost" type="button" data-cancel data-i18n="cancel">Cancel</button>
+        <button class="btn btn-primary" type="submit" data-i18n="save">Save</button>
+      </div>
+    </form>
+  </dialog>
+
+  <!-- Add money to a goal -->
+  <dialog class="sheet" id="money-dialog">
+    <form method="dialog" id="money-form" novalidate>
+      <h3 id="money-title"></h3>
+      <label class="field">
+        <span data-i18n="amount">Amount (€)</span>
+        <input name="amount" type="text" inputmode="decimal" autocomplete="off" required placeholder="0.00">
+      </label>
+      <p class="form-error" data-error hidden></p>
+      <div class="form-actions">
+        <span class="spacer"></span>
+        <button class="btn btn-ghost" type="button" data-cancel data-i18n="cancel">Cancel</button>
+        <button class="btn btn-primary" type="submit" data-i18n="save">Save</button>
+      </div>
+    </form>
+  </dialog>
+
+  <!-- PIN lock screen -->
+  <div class="lock" id="lock" hidden>
+    <div class="lock-inner">
+      <div class="lock-icon" aria-hidden="true">🔒</div>
+      <h2 data-i18n="appTitle">Bills Dashboard</h2>
+      <p class="lock-msg" id="lock-msg" role="status"></p>
+      <div class="pin-dots" id="pin-dots" aria-hidden="true"><span></span><span></span><span></span><span></span></div>
+      <div class="keys" id="pin-keys">
+        <button type="button">1</button><button type="button">2</button><button type="button">3</button>
+        <button type="button">4</button><button type="button">5</button><button type="button">6</button>
+        <button type="button">7</button><button type="button">8</button><button type="button">9</button>
+        <button type="button" data-key="cancel" class="key-text" id="pin-cancel" data-i18n="cancel">Cancel</button>
+        <button type="button">0</button>
+        <button type="button" data-key="back" aria-label="⌫">⌫</button>
+      </div>
+      <button type="button" class="link-btn" id="pin-forgot" data-i18n="forgotPin">Forgot PIN?</button>
+    </div>
+  </div>
+
   <script src="i18n.js"></script>
   <script src="i18n-payslip.js"></script>
+  <script src="i18n-more.js"></script>
   <script src="vendor/tesseract/tesseract.min.js" defer></script>
   <script src="payslip.js"></script>
   <script src="app.js"></script>

@@ -12,7 +12,7 @@
   var LANGS = window.I18N, KEYS = window.I18N_KEYS;
   var lang = pickLanguage();
   var strings = {};
-  var money, dateFmt, shortDateFmt, monthFmt, relFmt;
+  var money, dateFmt, shortDateFmt, monthFmt, relFmt, monthShortFmt, weekdayFmt, moneyShort;
 
   function pickLanguage() {
     var saved = null;
@@ -44,6 +44,9 @@
       dateFmt = new Intl.DateTimeFormat(lang, { day: 'numeric', month: 'short', year: 'numeric' });
       shortDateFmt = new Intl.DateTimeFormat(lang, { day: 'numeric', month: 'short' });
       monthFmt = new Intl.DateTimeFormat(lang, { month: 'long', year: 'numeric' });
+      monthShortFmt = new Intl.DateTimeFormat(lang, { month: 'short' });
+      weekdayFmt = new Intl.DateTimeFormat(lang, { weekday: 'short' });
+      moneyShort = new Intl.NumberFormat(lang, { style: 'currency', currency: 'EUR', notation: 'compact', maximumFractionDigits: 1 });
     } else {
       // This phone has no month names for the language: use numbers only (20.11.2026, 2.500,00 €)
       // so no English words get mixed in.
@@ -51,6 +54,9 @@
       dateFmt = new Intl.DateTimeFormat('de', { day: '2-digit', month: '2-digit', year: 'numeric' });
       shortDateFmt = new Intl.DateTimeFormat('de', { day: '2-digit', month: '2-digit' });
       monthFmt = new Intl.DateTimeFormat('de', { month: '2-digit', year: 'numeric' });
+      monthShortFmt = new Intl.DateTimeFormat('de', { month: '2-digit' });
+      weekdayFmt = { format: function () { return ''; } };
+      moneyShort = new Intl.NumberFormat('de', { style: 'currency', currency: 'EUR', maximumFractionDigits: 0 });
     }
     relFmt = supports(Intl.RelativeTimeFormat) ? new Intl.RelativeTimeFormat(lang, { numeric: 'auto' }) : null;
   }
@@ -84,6 +90,7 @@
       try { localStorage.setItem(LANG_KEY, sel.value); } catch (e) {}
       applyLanguage(sel.value);
       applyTheme(document.documentElement.getAttribute('data-theme') || 'light');
+      syncPinButton();
       render();
     });
   })();
@@ -133,23 +140,61 @@
     return true;
   }
 
-  // Next date (today or later) this item is due / paid. null if it has ended.
+  var PERIOD = { monthly: 1, quarterly: 3, yearly: 12 };
+  function repeatOf(item) { return item.repeat || 'monthly'; }
+  function addDays(d, n) { return new Date(d.getFullYear(), d.getMonth(), d.getDate() + n); }
+
+  // Every date inside month (y, m) on which this bill or income happens.
+  // Weekly: every 7 days from the start date. Every 3 months / yearly: counted from the start date's month.
+  function datesInMonth(item, y, m) {
+    var out = [], r = repeatOf(item), start = parseDate(item.startDate);
+    if (r === 'weekly') {
+      if (!start) return out;
+      var first = new Date(y, m, 1), last = new Date(y, m + 1, 0);
+      var d = start;
+      if (d < first) d = addDays(start, Math.ceil(daysBetween(start, first) / 7) * 7);
+      for (; d <= last; d = addDays(d, 7)) if (isWithin(item, d)) out.push(d);
+      return out;
+    }
+    var period = PERIOD[r] || 1;
+    if (period > 1 && start) {
+      var diff = (y - start.getFullYear()) * 12 + (m - start.getMonth());
+      if (diff < 0 || diff % period !== 0) return out;
+    }
+    var dd = occurrence(y, m, item.day);
+    if (isWithin(item, dd)) out.push(dd);
+    return out;
+  }
+
+  function happensInMonth(item, y, m) { return datesInMonth(item, y, m).length > 0; }
+
+  function isPaid(item, key) { return !!(item.paid && item.paid[key]); }
+
+  // Next date (today or later) this item is due / paid; months already ticked as paid are skipped.
+  // null if it has ended.
   function nextDate(item, from) {
     var start = parseDate(item.startDate) || from;
     var end = parseDate(item.endDate);
     var cursor = start > from ? start : from;
     var y = cursor.getFullYear(), m = cursor.getMonth();
-    for (var i = 0; i < 24; i++) {
-      var d = occurrence(y, m, item.day);
-      if (end && d > end) return null;
-      if (d >= from && isWithin(item, d)) return d;
+    for (var i = 0; i < 40; i++) {
+      if (end && new Date(y, m, 1) > end) return null;
+      if (!isPaid(item, monthKey(y, m))) {
+        var ds = datesInMonth(item, y, m);
+        for (var j = 0; j < ds.length; j++) if (ds[j] >= from) return ds[j];
+      }
       m++; if (m > 11) { m = 0; y++; }
     }
     return null;
   }
 
-  // Does this item have a due / pay date inside month (y, m)?
-  function happensInMonth(item, y, m) { return isWithin(item, occurrence(y, m, item.day)); }
+  // What a bill costs in a month: a logged amount for bills that change, times how often it falls in that month.
+  function amountFor(item, key) {
+    return item.variable && item.entries && typeof item.entries[key] === 'number' ? item.entries[key] : item.amount;
+  }
+  function owedInMonth(item, y, m) {
+    return round2(datesInMonth(item, y, m).length * amountFor(item, monthKey(y, m)));
+  }
 
   function daysBetween(a, b) { return Math.round((b - a) / 86400000); }
 
@@ -171,6 +216,7 @@
   function withDefaults(data) {
     if (!Array.isArray(data.payslips)) data.payslips = [];
     if (!Array.isArray(data.extras)) data.extras = [];
+    if (!Array.isArray(data.goals)) data.goals = [];
     return data;
   }
 
@@ -235,51 +281,74 @@
       });
   }
 
-  function render() {
-    var now = today();
-    var y = now.getFullYear(), m = now.getMonth();
-    var thisKey = monthKey(y, m);
-    $('#month-label').textContent = monthFmt.format(now);
+  // ---------- Categories (colours follow the category, never its rank) ----------
+  var CATS = [['housing', '🏠'], ['utilities', '💡'], ['transport', '🚗'], ['insurance', '🛡️'],
+              ['subscriptions', '📺'], ['loans', '🏦'], ['health', '🩺'], ['other', '📦']];
+  function catIndex(c) { for (var i = 0; i < CATS.length; i++) if (CATS[i][0] === c) return i; return CATS.length - 1; }
+  function catLabel(c) { var i = catIndex(c); return CATS[i][1] + ' ' + t('c_' + CATS[i][0]); }
+  function catColor(c) { return 'var(--cat-' + (catIndex(c) + 1) + ')'; }
 
-    // Totals for this calendar month
-    var totalIncome = 0, totalOwe = 0, notLogged = [];
+  // ---------- The month being looked at (arrows at the top) ----------
+  var view = (function () { var n = today(); return { y: n.getFullYear(), m: n.getMonth() }; })();
+  function isCurrentView() { var n = today(); return view.y === n.getFullYear() && view.m === n.getMonth(); }
+  function shiftView(d) { var x = new Date(view.y, view.m + d, 1); view = { y: x.getFullYear(), m: x.getMonth() }; render(); }
+
+  // Everything that adds up for one month.
+  function monthTotals(y, m) {
+    var key = monthKey(y, m), r = { income: 0, owe: 0, paid: 0, goals: 0, notLogged: [], byCat: {} };
     state.income.forEach(function (inc) {
-      // A payslip for this month shows what really arrived, so it wins over the card's amount.
-      var slip = payslipFor(inc.id, thisKey);
-      if (slip) {
-        totalIncome += payslipTotals(slip).net;
-      } else if (inc.kind === 'variable') {
-        var logged = inc.entries && inc.entries[thisKey];
-        if (typeof logged === 'number') totalIncome += logged;
-        else if (happensInMonth(inc, y, m)) notLogged.push(inc.name);
-      } else if (happensInMonth(inc, y, m)) {
-        totalIncome += inc.amount;
-      }
+      // A payslip for the month shows what really arrived, so it wins over the card's amount.
+      var slip = payslipFor(inc.id, key);
+      if (slip) r.income += payslipTotals(slip).net;
+      else if (inc.kind === 'variable') {
+        var logged = inc.entries && inc.entries[key];
+        if (typeof logged === 'number') r.income += logged;
+        else if (happensInMonth(inc, y, m)) r.notLogged.push(inc.name);
+      } else if (happensInMonth(inc, y, m)) r.income += inc.amount;
     });
     // Extra pay entered by hand counts too (extras read from a payslip are already in its net).
-    state.extras.forEach(function (x) {
-      if (x.month === thisKey) totalIncome += x.amount;
-    });
-    totalIncome = round2(totalIncome);
+    state.extras.forEach(function (x) { if (x.month === key) r.income += x.amount; });
     state.payments.forEach(function (p) {
-      if (happensInMonth(p, y, m)) totalOwe += p.amount;
+      var owed = owedInMonth(p, y, m);
+      if (!owed) return;
+      r.owe += owed;
+      if (isPaid(p, key)) r.paid += owed;
+      var c = p.category || 'other';
+      r.byCat[c] = (r.byCat[c] || 0) + owed;
     });
-    var left = round2(totalIncome - totalOwe);
+    state.goals.forEach(function (g) { r.goals += (g.moves && g.moves[key]) || 0; });
+    r.income = round2(r.income); r.owe = round2(r.owe); r.paid = round2(r.paid); r.goals = round2(r.goals);
+    r.still = round2(r.owe - r.paid);
+    r.left = round2(r.income - r.owe - r.goals);
+    return r;
+  }
 
-    $('#total-income').textContent = money.format(totalIncome);
-    $('#total-owe').textContent = money.format(totalOwe);
+  function render() {
+    var now = today();
+    var y = view.y, m = view.m;
+    var key = monthKey(y, m);
+    var current = isCurrentView();
+    $('#month-current').textContent = monthFmt.format(new Date(y, m, 1));
+    $('#month-current').classList.toggle('is-other', !current);
+    $('#prev-month').setAttribute('aria-label', monthFmt.format(new Date(y, m - 1, 1)));
+    $('#next-month').setAttribute('aria-label', monthFmt.format(new Date(y, m + 1, 1)));
+
+    var tot = monthTotals(y, m);
+    $('#total-income').textContent = money.format(tot.income);
+    $('#total-owe').textContent = money.format(tot.owe);
+    $('#still-to-pay').textContent = money.format(tot.still);
     var leftEl = $('#left-over');
-    leftEl.textContent = money.format(left);
-    leftEl.className = 'stat-value ' + (left < 0 ? 'negative' : left > 0 ? 'positive' : '');
+    leftEl.textContent = money.format(tot.left);
+    leftEl.className = 'stat-value ' + (tot.left < 0 ? 'negative' : tot.left > 0 ? 'positive' : '');
 
     var note = $('#summary-note');
-    if (notLogged.length) {
-      note.hidden = false;
-      note.textContent = t('notLogged', { month: monthFmt.format(now), names: notLogged.join(', ') });
-    } else {
-      note.hidden = true;
-      note.textContent = '';
-    }
+    note.hidden = !tot.notLogged.length;
+    note.textContent = tot.notLogged.length ? t('notLogged', { month: monthFmt.format(new Date(y, m, 1)), names: tot.notLogged.join(', ') }) : '';
+    var gNote = $('#goals-note');
+    gNote.hidden = !tot.goals;
+    gNote.textContent = tot.goals ? t('movedToGoals', { amount: money.format(tot.goals) }) : '';
+
+    renderComingUp(now);
 
     // Income cards
     var incList = $('#income-list');
@@ -289,16 +358,19 @@
       incList.innerHTML = sortByNext(state.income, now).map(function (row) {
         var inc = row.item, next = row.next;
         var isVar = inc.kind === 'variable';
-        var amount;
+        var amount, lastKey;
         if (isVar) {
-          var v = inc.entries && inc.entries[thisKey];
+          var v = inc.entries && inc.entries[key];
           amount = typeof v === 'number' ? money.format(v) : '—';
           var keys = Object.keys(inc.entries || {}).sort();
-          var lastKey = keys[keys.length - 1];
+          lastKey = keys[keys.length - 1];
         } else {
           amount = money.format(inc.amount);
         }
-        var due = dueLabel(next, now, 'payday');
+        var inMonth = datesInMonth(inc, y, m)[0];
+        var due = current ? dueLabel(next, now, 'payday')
+          : inMonth ? { text: t('payday') + ': ' + shortDateFmt.format(inMonth), cls: 'accent' } : { text: t('notDue'), cls: '' };
+        var slip = payslipFor(inc.id, key);
         return '' +
           '<article class="card' + (next || (isVar && amount !== '—') ? '' : ' is-inactive') + '">' +
             '<div class="card-top">' +
@@ -308,8 +380,7 @@
             '<div class="badges">' +
               '<span class="badge">' + escapeHtml(t(isVar ? 'variable' : 'fixed')) + '</span>' +
               '<span class="badge ' + (due.cls === 'warn' ? 'ok' : due.cls) + '">' + escapeHtml(due.text) + '</span>' +
-              (payslipFor(inc.id, thisKey) ? '<span class="badge ok">' + escapeHtml(t('net')) + ': ' +
-                money.format(payslipTotals(payslipFor(inc.id, thisKey)).net) + '</span>' : '') +
+              (slip ? '<span class="badge ok">' + escapeHtml(t('net')) + ': ' + money.format(payslipTotals(slip).net) + '</span>' : '') +
             '</div>' +
             '<dl class="card-meta">' +
               '<div><dt>' + escapeHtml(t('startDate')) + '</dt><dd>' + dateFmt.format(parseDate(inc.startDate)) + '</dd></div>' +
@@ -328,39 +399,223 @@
       }).join('');
     }
 
-    // Payment cards
+    // Payment cards: still to pay this month first (by date), then paid, then bills not due this month.
     var payList = $('#payment-list');
     if (!state.payments.length) {
       payList.innerHTML = '<div class="empty">' + escapeHtml(t('emptyBills')) + '</div>';
     } else {
-      payList.innerHTML = sortByNext(state.payments, now).map(function (row) {
-        var p = row.item, next = row.next;
-        var due = dueLabel(next, now, 'due');
-        return '' +
-          '<article class="card' + (next ? '' : ' is-inactive') + '">' +
-            '<div class="card-top">' +
-              '<div class="card-name">' + escapeHtml(p.name) + '</div>' +
-              '<div class="card-amount">' + money.format(p.amount) + '</div>' +
-            '</div>' +
-            '<div class="badges">' +
-              '<span class="badge ' + due.cls + '">' + escapeHtml(due.text) + '</span>' +
-            '</div>' +
-            '<dl class="card-meta">' +
-              '<div><dt>' + escapeHtml(t('nextDue')) + '</dt><dd>' + (next ? dateFmt.format(next) : escapeHtml(t('ended'))) + '</dd></div>' +
-              '<div><dt>' + escapeHtml(t('dueOnDay')) + '</dt><dd>' + p.day + '</dd></div>' +
-              '<div><dt>' + escapeHtml(t('startDate')) + '</dt><dd>' + dateFmt.format(parseDate(p.startDate)) + '</dd></div>' +
-              '<div><dt>' + escapeHtml(t('endDate')) + '</dt><dd>' + (p.endDate ? dateFmt.format(parseDate(p.endDate)) : '—') + '</dd></div>' +
-            '</dl>' +
-            '<div class="card-actions">' +
-              '<button class="btn btn-ghost btn-small" type="button" data-action="edit-payment" data-id="' + p.id + '">' + escapeHtml(t('edit')) + '</button>' +
-              '<button class="btn btn-danger btn-small" type="button" data-action="delete-payment" data-id="' + p.id + '">' + escapeHtml(t('delete')) + '</button>' +
-            '</div>' +
-          '</article>';
-      }).join('');
+      var rows = state.payments.map(function (p) {
+        var st = billState(p, y, m, now);
+        var next = nextDate(p, now);
+        // Sort key: overdue bills first, then by their next date in this month.
+        var when = st.overdue ? st.ds[0] : (current ? (st.upcoming[0] || next) : st.ds[0]);
+        return { p: p, ds: st.ds, st: st, paid: st.paid, next: next, when: when,
+                 group: !st.active ? 2 : st.paid ? 1 : 0 };
+      }).sort(function (a, b) {
+        if (a.group !== b.group) return a.group - b.group;
+        var da = a.group === 2 ? a.next : a.when, db = b.group === 2 ? b.next : b.when;
+        if (!da && !db) return a.p.name.localeCompare(b.p.name);
+        if (!da) return 1;
+        if (!db) return -1;
+        return da - db || a.p.name.localeCompare(b.p.name);
+      });
+      payList.innerHTML = rows.map(renderPaymentCard).join('');
     }
 
+    renderCategories(tot);
+    renderHistory6();
     renderPayslips();
     renderExtras(y);
+    renderGoals(tot);
+  }
+
+  // A bill's state in the viewed month. Weekly bills are never "overdue": only their coming dates matter.
+  function billState(p, y, m, now) {
+    var ds = datesInMonth(p, y, m), key = monthKey(y, m), paid = isPaid(p, key);
+    var upcoming = ds.filter(function (d) { return d >= now; });
+    var overdue = !paid && repeatOf(p) !== 'weekly' && ds.length > 0 && ds[ds.length - 1] < now;
+    var active = ds.length > 0 && (repeatOf(p) !== 'weekly' || upcoming.length > 0 || now < new Date(y, m, 1) || paid);
+    return { ds: ds, paid: paid, overdue: overdue, upcoming: upcoming, active: active };
+  }
+
+  function renderPaymentCard(row) {
+    var p = row.p, now = today(), key = monthKey(view.y, view.m);
+    var due, owed = owedInMonth(p, view.y, view.m);
+    if (row.paid) due = { text: t('paidOn', { date: shortDateFmt.format(parseDate(p.paid[key]) || row.ds[0]) }), cls: 'ok' };
+    else if (row.st.overdue) due = { text: t('overdue'), cls: 'warn' };
+    else if (!row.st.active) due = row.next && isCurrentView() ? dueLabel(row.next, now, 'due') : { text: t('notDue'), cls: '' };
+    else if (isCurrentView()) due = dueLabel(row.st.upcoming[0] || row.ds[0], now, 'due');
+    else due = { text: t('due') + ': ' + shortDateFmt.format(row.ds[0]), cls: 'accent' };
+    var r = repeatOf(p), period = PERIOD[r] || 1;
+    var check = row.ds.length
+      ? '<button type="button" class="check' + (row.paid ? ' on' : '') + '" data-action="toggle-paid" data-id="' + p.id + '" aria-pressed="' + row.paid + '" aria-label="' + escapeHtml(t('paid') + ': ' + p.name) + '">✓</button>'
+      : '<span class="check off" aria-hidden="true"></span>';
+    return '' +
+      '<article class="card pay-card' + (row.paid ? ' paid' : '') + (row.next || row.ds.length ? '' : ' is-inactive') + '">' +
+        '<div class="pay-row">' + check +
+        '<div class="pay-body">' +
+          '<div class="card-top">' +
+            '<div class="card-name">' + escapeHtml(p.name) + '</div>' +
+            '<div class="card-amount">' + money.format(owed || amountFor(p, key)) + '</div>' +
+          '</div>' +
+          '<div class="badges">' +
+            '<span class="badge ' + due.cls + '">' + escapeHtml(due.text) + '</span>' +
+            '<span class="badge">' + escapeHtml(catLabel(p.category)) + '</span>' +
+            (r !== 'monthly' ? '<span class="badge">' + escapeHtml(t('r_' + r)) + '</span>' : '') +
+            (period > 1 ? '<span class="badge accent">' + escapeHtml(t('setAside', { amount: money.format(round2(p.amount / period)) })) + '</span>' : '') +
+            (p.variable ? '<span class="badge">' + escapeHtml(t('changesMonthly')) + '</span>' : '') +
+          '</div>' +
+        '</div></div>' +
+        (p.variable ? sparkline(p) : '') +
+        '<dl class="card-meta">' +
+          '<div><dt>' + escapeHtml(t('nextDue')) + '</dt><dd>' + (row.next ? dateFmt.format(row.next) : escapeHtml(t('ended'))) + '</dd></div>' +
+          (r === 'weekly' ? '' : '<div><dt>' + escapeHtml(t('dueOnDay')) + '</dt><dd>' + p.day + '</dd></div>') +
+          '<div><dt>' + escapeHtml(t('startDate')) + '</dt><dd>' + dateFmt.format(parseDate(p.startDate)) + '</dd></div>' +
+          '<div><dt>' + escapeHtml(t('endDate')) + '</dt><dd>' + (p.endDate ? dateFmt.format(parseDate(p.endDate)) : '—') + '</dd></div>' +
+        '</dl>' +
+        '<div class="card-actions">' +
+          (p.variable ? '<button class="btn btn-primary btn-small" type="button" data-action="log-payment" data-id="' + p.id + '">' + escapeHtml(t('logAmount')) + '</button>' : '') +
+          '<button class="btn btn-ghost btn-small" type="button" data-action="edit-payment" data-id="' + p.id + '">' + escapeHtml(t('edit')) + '</button>' +
+          '<button class="btn btn-danger btn-small" type="button" data-action="delete-payment" data-id="' + p.id + '">' + escapeHtml(t('delete')) + '</button>' +
+        '</div>' +
+      '</article>';
+  }
+
+  // Small trend line of the last 6 logged months for a bill that changes.
+  function sparkline(p) {
+    var pts = [];
+    for (var i = 5; i >= 0; i--) {
+      var d = new Date(view.y, view.m - i, 1), k = monthKey(d.getFullYear(), d.getMonth());
+      if (p.entries && typeof p.entries[k] === 'number') pts.push({ k: k, v: p.entries[k], i: 5 - i });
+    }
+    if (pts.length < 2) return '';
+    var min = Math.min.apply(null, pts.map(function (x) { return x.v; })), max = Math.max.apply(null, pts.map(function (x) { return x.v; }));
+    var span = max - min || 1, W = 300, H = 40;
+    var xy = pts.map(function (x) { return [6 + x.i * (W - 12) / 5, 6 + (1 - (x.v - min) / span) * (H - 12)]; });
+    var last = xy[xy.length - 1], a = pts[0], b = pts[pts.length - 1];
+    return '<div class="spark"><svg viewBox="0 0 ' + W + ' ' + H + '" preserveAspectRatio="none" role="img" aria-label="' + escapeHtml(t('lastMonths')) + '">' +
+      '<polyline fill="none" stroke="var(--cat-1)" stroke-width="2" stroke-linejoin="round" stroke-linecap="round" vector-effect="non-scaling-stroke" points="' +
+      xy.map(function (q) { return q[0].toFixed(1) + ',' + q[1].toFixed(1); }).join(' ') + '"/></svg>' +
+      '<span class="spark-dot" style="left:' + (last[0] / W * 100) + '%;top:' + (last[1] / H * 100) + '%"></span>' +
+      '<div class="spark-labels"><span>' + escapeHtml(shortMonth(a.k)) + ' ' + money.format(a.v) + '</span><span>' +
+      escapeHtml(shortMonth(b.k)) + ' ' + money.format(b.v) + '</span></div></div>';
+  }
+
+  function shortMonth(key) {
+    var p = key.split('-').map(Number);
+    return monthShortFmt.format(new Date(p[0], p[1] - 1, 1));
+  }
+
+  // ---------- Next 14 days (always counted from today) ----------
+  function renderComingUp(now) {
+    var until = addDays(now, 13), items = [], dueSum = 0;
+    for (var k = 0; k < 2; k++) {
+      var d0 = new Date(now.getFullYear(), now.getMonth() + k, 1), yy = d0.getFullYear(), mm = d0.getMonth(), mk = monthKey(yy, mm);
+      state.payments.forEach(function (p) {
+        if (isPaid(p, mk)) return;
+        datesInMonth(p, yy, mm).forEach(function (d) {
+          var overdue = d < now && k === 0 && repeatOf(p) !== 'weekly' && d.getTime() === datesInMonth(p, yy, mm).slice(-1)[0].getTime();
+          if ((d >= now && d <= until) || overdue) {
+            var amt = amountFor(p, mk);
+            dueSum += amt;
+            items.push({ d: d, name: p.name, amount: amt, bill: true, overdue: overdue });
+          }
+        });
+      });
+      state.income.forEach(function (inc) {
+        datesInMonth(inc, yy, mm).forEach(function (d) {
+          if (d >= now && d <= until) items.push({ d: d, name: inc.name, amount: inc.kind === 'fixed' ? inc.amount : null, bill: false });
+        });
+      });
+    }
+    items.sort(function (a, b) { return a.d - b.d; });
+    var badge = $('#coming-total');
+    badge.hidden = !dueSum;
+    badge.textContent = t('due') + ': ' + money.format(round2(dueSum));
+    $('#coming-list').innerHTML = items.length ? items.map(function (it) {
+      var n = daysBetween(now, it.d);
+      var when = it.overdue ? t('overdue') : it.bill ? (relFmt ? relFmt.format(n, 'day') : shortDateFmt.format(it.d)) : t('payday');
+      return '<li class="' + (it.overdue ? 'is-overdue' : '') + '"><div class="tl-date"><b>' + it.d.getDate() + '</b><small>' + escapeHtml(weekdayFmt.format(it.d)) + '</small></div>' +
+        '<div class="tl-body"><b>' + escapeHtml(it.name) + '</b><span class="help">' + escapeHtml(when) + '</span></div>' +
+        '<b class="tl-amt' + (it.bill ? '' : ' positive') + '">' + (it.amount == null ? '—' : (it.bill ? '' : '+') + money.format(it.amount)) + '</b></li>';
+    }).join('') : '<li class="tl-empty">' + escapeHtml(t('nothingDue')) + '</li>';
+  }
+
+  // ---------- Where your money goes (ring chart + list with every value) ----------
+  function renderCategories(tot) {
+    var cats = Object.keys(tot.byCat).filter(function (c) { return tot.byCat[c] > 0; })
+      .sort(function (a, b) { return tot.byCat[b] - tot.byCat[a] || catIndex(a) - catIndex(b); });
+    $('#cat-section').hidden = !cats.length;
+    if (!cats.length) { $('#cat-chart').innerHTML = ''; return; }
+    var total = tot.owe, R = 70, C = 2 * Math.PI * R, gap = cats.length > 1 ? 2 : 0, off = 0;
+    var segs = cats.map(function (c) {
+      var len = tot.byCat[c] / total * C;
+      var seg = '<circle r="' + R + '" fill="none" stroke="' + catColor(c) + '" stroke-width="26" stroke-dasharray="' +
+        Math.max(len - gap, 0.5).toFixed(2) + ' ' + C.toFixed(2) + '" stroke-dashoffset="' + (-off).toFixed(2) + '">' +
+        '<title>' + escapeHtml(catLabel(c) + ': ' + money.format(tot.byCat[c])) + '</title></circle>';
+      off += len;
+      return seg;
+    }).join('');
+    $('#cat-chart').innerHTML =
+      '<p class="chart-sub">' + escapeHtml(monthFmt.format(new Date(view.y, view.m, 1))) + '</p>' +
+      '<svg class="donut" viewBox="0 0 200 200" role="img" aria-label="' + escapeHtml(t('whereMoney')) + '">' +
+        '<g transform="translate(100,100) rotate(-90)">' + segs + '</g>' +
+        '<text x="100" y="94" text-anchor="middle" class="donut-label">' + escapeHtml(t('toPay')) + '</text>' +
+        '<text x="100" y="116" text-anchor="middle" class="donut-value">' + escapeHtml(money.format(total)) + '</text>' +
+      '</svg>' +
+      '<ul class="legend">' + cats.map(function (c) {
+        return '<li><span class="sw" style="background:' + catColor(c) + '"></span><span class="lg-name">' + escapeHtml(catLabel(c)) + '</span>' +
+          '<span class="lg-val">' + money.format(tot.byCat[c]) + '</span><span class="lg-pct">' + Math.round(tot.byCat[c] / total * 100) + '%</span></li>';
+      }).join('') + '</ul>';
+  }
+
+  // ---------- Last 6 months: income and bills side by side; tap a month to open it ----------
+  function niceMax(v) {
+    if (v <= 0) return 100;
+    var e = Math.pow(10, Math.floor(Math.log10(v))), f = v / e;
+    // Steps whose halves are round too (so the middle gridline reads e.g. 1.5k, not 1.25k).
+    return (f <= 1 ? 1 : f <= 2 ? 2 : f <= 3 ? 3 : f <= 4 ? 4 : f <= 5 ? 5 : f <= 6 ? 6 : f <= 8 ? 8 : 10) * e;
+  }
+
+  function renderHistory6() {
+    var months = [];
+    for (var i = 5; i >= 0; i--) {
+      var d = new Date(view.y, view.m - i, 1), tt = monthTotals(d.getFullYear(), d.getMonth());
+      months.push({ y: d.getFullYear(), m: d.getMonth(), inc: tt.income, owe: tt.owe, left: round2(tt.income - tt.owe) });
+    }
+    var max = niceMax(Math.max.apply(null, months.map(function (x) { return Math.max(x.inc, x.owe); })));
+    var W = 340, top = 18, base = 150, h = base - top, x0 = 62, step = (W - x0) / 6, bw = Math.min(16, step / 2 - 4);
+    function bar(x, v, color) {
+      var hh = v / max * h; if (hh <= 0) return '';
+      var r = Math.min(4, hh), yv = base - hh;
+      return '<path fill="' + color + '" d="M' + x + ',' + base + ' V' + (yv + r) + ' Q' + x + ',' + yv + ' ' + (x + r) + ',' + yv +
+        ' H' + (x + bw - r) + ' Q' + (x + bw) + ',' + yv + ' ' + (x + bw) + ',' + (yv + r) + ' V' + base + ' Z"/>';
+    }
+    var grid = [0, 0.5, 1].map(function (f) {
+      var yy = base - f * h;
+      return '<line x1="' + x0 + '" x2="' + W + '" y1="' + yy + '" y2="' + yy + '" class="grid"/>' +
+        '<text x="' + (x0 - 6) + '" y="' + (yy + 3) + '" text-anchor="end" class="axis">' + escapeHtml(moneyShort.format(max * f)) + '</text>';
+    }).join('');
+    var groups = months.map(function (mo, i) {
+      var gx = x0 + i * step, cx = gx + step / 2, sel = mo.y === view.y && mo.m === view.m;
+      var label = monthFmt.format(new Date(mo.y, mo.m, 1));
+      return '<g class="hist-group' + (sel ? ' sel' : '') + '" data-month="' + mo.y + '-' + mo.m + '" tabindex="0" role="button" aria-label="' +
+          escapeHtml(label + ': ' + t('income') + ' ' + money.format(mo.inc) + ', ' + t('payments') + ' ' + money.format(mo.owe)) + '">' +
+        '<title>' + escapeHtml(label + '\n' + t('income') + ': ' + money.format(mo.inc) + '\n' + t('payments') + ': ' + money.format(mo.owe) + '\n' + t('leftOver') + ': ' + money.format(mo.left)) + '</title>' +
+        '<rect class="hit" x="' + gx + '" y="0" width="' + step + '" height="' + (base + 24) + '"/>' +
+        bar(cx - bw - 1, mo.inc, 'var(--cat-1)') + bar(cx + 1, mo.owe, 'var(--cat-2)') +
+        '<text x="' + cx + '" y="' + (base + 16) + '" text-anchor="middle" class="axis' + (sel ? ' axis-sel' : '') + '">' +
+          escapeHtml(monthShortFmt.format(new Date(mo.y, mo.m, 1))) + '</text></g>';
+    }).join('');
+    var withData = months.filter(function (x) { return x.inc || x.owe; });
+    var avg = withData.length ? round2(withData.reduce(function (s2, x) { return s2 + x.left; }, 0) / withData.length) : 0;
+    var best = withData.slice().sort(function (a, b) { return b.left - a.left; })[0];
+    $('#hist-chart').innerHTML =
+      '<div class="chart-legend"><span><i style="background:var(--cat-1)"></i>' + escapeHtml(t('income')) + '</span>' +
+        '<span><i style="background:var(--cat-2)"></i>' + escapeHtml(t('payments')) + '</span></div>' +
+      '<svg class="hist" viewBox="0 0 ' + W + ' ' + (base + 24) + '" role="img" aria-label="' + escapeHtml(t('lastMonths')) + '">' + grid + groups + '</svg>' +
+      (withData.length ? '<div class="hist-stats"><div><span>' + escapeHtml(t('avgLeft')) + '</span><strong class="' + (avg < 0 ? 'negative' : 'positive') + '">' + money.format(avg) + '</strong></div>' +
+        '<div><span>' + escapeHtml(t('bestMonth')) + '</span><strong>' + escapeHtml(monthFmt.format(new Date(best.y, best.m, 1))) + '</strong></div></div>' : '');
   }
 
   function kindName(kind) { return t('k_' + kind); }
@@ -510,13 +765,13 @@
   }
 
   // Shared checks for name, start date, day and end date.
-  function validateCommon(form, endDateStr) {
+  function validateCommon(form, endDateStr, noDay) {
     var f = form.elements;
     var name = f.name.value.trim();
     if (!name) return showError(form, t('errName'), f.name), null;
     var start = parseDate(f.startDate.value);
     if (!start) return showError(form, t('errStart'), f.startDate), null;
-    var day = Number(f.day.value);
+    var day = noDay ? start.getDate() : Number(f.day.value);
     if (!Number.isInteger(day) || day < 1 || day > 31) return showError(form, t('errDay'), f.day), null;
     if (endDateStr) {
       var end = parseDate(endDateStr);
@@ -599,11 +854,26 @@
   var paymentForm = $('#payment-form');
   var editingPaymentId = null;
 
+  function syncPaymentForm() {
+    var f = paymentForm.elements, r = f.repeat.value, period = PERIOD[r] || 1;
+    $('[data-day-field]', paymentForm).hidden = r === 'weekly';
+    $('[data-amount-label]', paymentForm).textContent = f.variable.checked ? t('usualAmount') : t('amount');
+    var amt = parseNumber(f.amount.value), note = $('#set-aside-note');
+    note.hidden = !(period > 1 && amt > 0);
+    if (!note.hidden) note.textContent = '💡 ' + t('setAside', { amount: money.format(round2(amt / period)) });
+  }
+  paymentForm.addEventListener('change', syncPaymentForm);
+  paymentForm.addEventListener('input', syncPaymentForm);
+
   function openPaymentForm(p) {
     editingPaymentId = p ? p.id : null;
     paymentForm.reset();
     showError(paymentForm, null);
     var f = paymentForm.elements;
+    f.category.innerHTML = CATS.map(function (c) { return '<option value="' + c[0] + '">' + escapeHtml(catLabel(c[0])) + '</option>'; }).join('');
+    f.category.value = p ? (p.category || 'other') : 'housing';
+    f.repeat.value = p ? repeatOf(p) : 'monthly';
+    f.variable.checked = !!(p && p.variable);
     $('#payment-form-title').textContent = t(p ? 'editBill' : 'addBill');
     $('[data-delete]', paymentForm).hidden = !p;
     if (p) {
@@ -615,18 +885,23 @@
     } else {
       f.startDate.value = toDateInput(today());
     }
+    syncPaymentForm();
     openDialog(paymentDlg);
   }
 
   paymentForm.addEventListener('submit', function (e) {
     e.preventDefault();
     var f = paymentForm.elements;
-    var common = validateCommon(paymentForm, f.endDate.value);
+    var repeat = f.repeat.value || 'monthly';
+    var common = validateCommon(paymentForm, f.endDate.value, repeat === 'weekly');
     if (!common) return;
     var amount = readAmount(f.amount);
     if (isNaN(amount)) return showError(paymentForm, t('errAmount'), f.amount);
     var existing = editingPaymentId && find(state.payments, editingPaymentId);
-    var record = Object.assign(existing || { id: newId() }, common, { amount: amount });
+    var record = Object.assign(existing || { id: newId(), paid: {} }, common, {
+      amount: amount, category: f.category.value, repeat: repeat, variable: f.variable.checked
+    });
+    if (record.variable && !record.entries) record.entries = {};
     if (!existing) state.payments.push(record);
     save();
     render();
@@ -640,7 +915,7 @@
   // ---------- Log variable income ----------
   var logDlg = $('#log-dialog');
   var logForm = $('#log-form');
-  var loggingId = null;
+  var loggingId = null, loggingList = 'income';
 
   function renderHistory(inc) {
     var keys = Object.keys(inc.entries || {}).sort().reverse();
@@ -651,12 +926,13 @@
     }).join('') : '<li><span class="help">' + escapeHtml(t('noHistory')) + '</span></li>';
   }
 
-  function openLogForm(inc) {
+  function openLogForm(inc, list) {
     loggingId = inc.id;
+    loggingList = list || 'income';
     logForm.reset();
     showError(logForm, null);
     var now = today();
-    var key = monthKey(now.getFullYear(), now.getMonth());
+    var key = loggingList === 'payments' ? monthKey(view.y, view.m) : monthKey(now.getFullYear(), now.getMonth());
     $('#log-form-title').textContent = t('logAmount') + ': ' + inc.name;
     logForm.elements.month.value = key;
     if (inc.entries && typeof inc.entries[key] === 'number') logForm.elements.amount.value = inc.entries[key];
@@ -665,14 +941,14 @@
   }
 
   logForm.elements.month.addEventListener('change', function () {
-    var inc = find(state.income, loggingId);
+    var inc = find(state[loggingList], loggingId);
     var k = logForm.elements.month.value;
     if (inc && inc.entries && typeof inc.entries[k] === 'number') logForm.elements.amount.value = inc.entries[k];
   });
 
   logForm.addEventListener('submit', function (e) {
     e.preventDefault();
-    var inc = find(state.income, loggingId);
+    var inc = find(state[loggingList], loggingId);
     if (!inc) return closeDialog(logDlg);
     var f = logForm.elements;
     if (!/^\d{4}-\d{2}$/.test(f.month.value)) return showError(logForm, t('errMonth'), f.month);
@@ -690,7 +966,7 @@
   $('#log-history').addEventListener('click', function (e) {
     var btn = e.target.closest('.h-del');
     if (!btn) return;
-    var inc = find(state.income, loggingId);
+    var inc = find(state[loggingList], loggingId);
     if (!inc) return;
     var k = btn.getAttribute('data-month');
     if (!confirm(t('confirmRemove', { month: monthKeyLabel(k) }))) return;
@@ -1016,6 +1292,297 @@
   });
   $('#add-extra').addEventListener('click', function () { openExtraForm(null); });
 
+  // ---------- Paid ticks ----------
+  function togglePaid(id) {
+    var p = find(state.payments, id);
+    if (!p) return;
+    var key = monthKey(view.y, view.m);
+    p.paid = p.paid || {};
+    if (p.paid[key]) delete p.paid[key];
+    else {
+      var n = today(), ds = datesInMonth(p, view.y, view.m);
+      // The date it was ticked, or the due date when ticking a past or future month.
+      p.paid[key] = toDateInput(isCurrentView() ? n : (ds[0] || new Date(view.y, view.m, 1)));
+    }
+    save();
+    render();
+  }
+
+  // ---------- Month arrows and chart taps ----------
+  $('#prev-month').addEventListener('click', function () { shiftView(-1); });
+  $('#next-month').addEventListener('click', function () { shiftView(1); });
+  $('#month-current').addEventListener('click', function () {
+    var n = today(); view = { y: n.getFullYear(), m: n.getMonth() }; render();
+  });
+  function pickHistMonth(e) {
+    var g = e.target.closest && e.target.closest('.hist-group');
+    if (!g) return;
+    if (e.type === 'keydown' && e.key !== 'Enter' && e.key !== ' ') return;
+    var parts = g.getAttribute('data-month').split('-').map(Number);
+    view = { y: parts[0], m: parts[1] };
+    render();
+    $('#month-current').scrollIntoView({ behavior: 'smooth', block: 'center' });
+  }
+  $('#hist-chart').addEventListener('click', pickHistMonth);
+  $('#hist-chart').addEventListener('keydown', pickHistMonth);
+
+  // ---------- Savings goals ----------
+  function goalLeft(g) { return round2(Math.max(0, g.target - g.saved)); }
+  function goalPerMonth(g) {
+    if (!g.by || goalLeft(g) <= 0) return null;
+    var n = today(), p2 = g.by.split('-').map(Number);
+    var months = (p2[0] - n.getFullYear()) * 12 + (p2[1] - 1 - n.getMonth()) + 1;
+    return months > 0 ? round2(goalLeft(g) / months) : goalLeft(g);
+  }
+
+  function renderGoals(tot) {
+    var list = $('#goal-list');
+    if (!state.goals.length) {
+      list.innerHTML = '<div class="empty">' + escapeHtml(t('emptyGoals')) + '</div>';
+    } else {
+      list.innerHTML = state.goals.map(function (g) {
+        var pct = g.target > 0 ? Math.min(100, Math.round(g.saved / g.target * 100)) : 0;
+        var per = goalPerMonth(g), done = goalLeft(g) <= 0;
+        return '<article class="card">' +
+          '<div class="card-top"><div class="card-name">' + escapeHtml(g.name) + '</div>' +
+          '<div class="card-amount">' + money.format(g.saved) + ' <span class="of">/ ' + money.format(g.target) + '</span></div></div>' +
+          '<div class="progress" role="progressbar" aria-valuemin="0" aria-valuemax="100" aria-valuenow="' + pct + '"><span style="width:' + pct + '%"></span></div>' +
+          '<div class="badges"><span class="badge accent">' + pct + '%</span>' +
+            (done ? '<span class="badge ok">🎉 ' + escapeHtml(t('reached')) + '</span>' : '') +
+            (per ? '<span class="badge">' + escapeHtml(t('perMonthUntil', { amount: money.format(per), month: monthKeyLabel(g.by) })) + '</span>' : '') +
+          '</div>' +
+          '<div class="card-actions">' +
+            (done ? '' : '<button class="btn btn-primary btn-small" type="button" data-action="goal-money" data-id="' + g.id + '">+ ' + escapeHtml(t('addMoney')) + '</button>') +
+            '<button class="btn btn-ghost btn-small" type="button" data-action="edit-goal" data-id="' + g.id + '">' + escapeHtml(t('edit')) + '</button>' +
+            '<button class="btn btn-danger btn-small" type="button" data-action="delete-goal" data-id="' + g.id + '">' + escapeHtml(t('delete')) + '</button>' +
+          '</div></article>';
+      }).join('');
+    }
+    // A gentle nudge when this month has money left over and a goal still needs some.
+    var nudge = $('#goal-nudge'), open = state.goals.filter(function (g) { return goalLeft(g) > 0; })[0];
+    var dismissed = null;
+    try { dismissed = localStorage.getItem('bills-goal-nudge'); } catch (e) {}
+    var n = today(), curKey = monthKey(n.getFullYear(), n.getMonth());
+    if (isCurrentView() && open && tot.left > 0 && dismissed !== curKey) {
+      var suggest = Math.min(goalLeft(open), goalPerMonth(open) || Math.max(5, Math.round(tot.left * 0.1 / 5) * 5), tot.left);
+      nudge.innerHTML = '<article class="card nudge"><p>' + escapeHtml(t('moveToGoal', { amount: money.format(tot.left) })) + '</p>' +
+        '<div class="card-actions"><button class="btn btn-primary btn-small" type="button" data-action="goal-money" data-id="' + open.id + '" data-suggest="' + suggest + '">+ ' +
+        escapeHtml(money.format(suggest)) + ' → ' + escapeHtml(open.name) + '</button>' +
+        '<button class="btn btn-ghost btn-small" type="button" data-action="goal-nudge-close">' + escapeHtml(t('cancel')) + '</button></div></article>';
+    } else nudge.innerHTML = '';
+  }
+
+  var goalDlg = $('#goal-dialog'), goalForm = $('#goal-form'), editingGoalId = null;
+  function openGoalForm(g) {
+    editingGoalId = g ? g.id : null;
+    goalForm.reset();
+    showError(goalForm, null);
+    var f = goalForm.elements;
+    if (g) { f.name.value = g.name; f.target.value = g.target; f.saved.value = g.saved || ''; f.by.value = g.by || ''; }
+    $('[data-delete]', goalForm).hidden = !g;
+    openDialog(goalDlg);
+  }
+  goalForm.addEventListener('submit', function (e) {
+    e.preventDefault();
+    var f = goalForm.elements;
+    var name = f.name.value.trim();
+    if (!name) return showError(goalForm, t('errName'), f.name);
+    var target = readAmount(f.target);
+    if (isNaN(target) || !target) return showError(goalForm, t('errAmount'), f.target);
+    var saved = f.saved.value.trim() ? readAmount(f.saved) : 0;
+    if (isNaN(saved)) return showError(goalForm, t('errAmount'), f.saved);
+    var g = editingGoalId && find(state.goals, editingGoalId);
+    if (!g) { g = { id: newId(), moves: {} }; state.goals.push(g); }
+    g.name = name; g.target = target; g.saved = saved; g.by = /^\d{4}-\d{2}$/.test(f.by.value) ? f.by.value : null;
+    save(); render(); closeDialog(goalDlg);
+  });
+  $('[data-delete]', goalForm).addEventListener('click', function () {
+    if (editingGoalId && deleteItem('goals', editingGoalId)) closeDialog(goalDlg);
+  });
+  $('#add-goal').addEventListener('click', function () { openGoalForm(null); });
+
+  var moneyDlg = $('#money-dialog'), moneyForm = $('#money-form'), moneyGoalId = null;
+  function openMoneyForm(g, suggest) {
+    if (!g) return;
+    moneyGoalId = g.id;
+    moneyForm.reset();
+    showError(moneyForm, null);
+    $('#money-title').textContent = t('addMoney') + ': ' + g.name;
+    if (suggest) moneyForm.elements.amount.value = String(suggest).replace('.', ',');
+    openDialog(moneyDlg);
+  }
+  moneyForm.addEventListener('submit', function (e) {
+    e.preventDefault();
+    var g = find(state.goals, moneyGoalId);
+    if (!g) return closeDialog(moneyDlg);
+    var amt = readAmount(moneyForm.elements.amount);
+    if (isNaN(amt) || !amt) return showError(moneyForm, t('errAmount'), moneyForm.elements.amount);
+    var n = today(), k = monthKey(n.getFullYear(), n.getMonth());
+    g.saved = round2((g.saved || 0) + amt);
+    g.moves = g.moves || {};
+    g.moves[k] = round2((g.moves[k] || 0) + amt);   // counts as money set aside this month
+    save(); render(); closeDialog(moneyDlg);
+  });
+
+  // ---------- Calendar reminders (.ics file the phone's calendar imports) ----------
+  function icsDate(d) { return d.getFullYear() + String(d.getMonth() + 1).padStart(2, '0') + String(d.getDate()).padStart(2, '0'); }
+  function icsText(s2) { return String(s2).replace(/\\/g, '\\\\').replace(/[,;]/g, function (c) { return '\\' + c; }).replace(/\n/g, '\\n'); }
+  function monthDayRule(day) {
+    // "Day 31" means the last day in shorter months.
+    if (day <= 28) return 'BYMONTHDAY=' + day;
+    var days = []; for (var d = day; d >= 28; d--) days.push(d);
+    return 'BYMONTHDAY=' + days.join(',') + ';BYSETPOS=-1';
+  }
+  function makeIcs() {
+    var now = today(), stamp = new Date().toISOString().replace(/[-:]/g, '').replace(/\.\d+/, '');
+    var out = ['BEGIN:VCALENDAR', 'VERSION:2.0', 'PRODID:-//Bills Dashboard//EN', 'CALSCALE:GREGORIAN', 'METHOD:PUBLISH'];
+    state.payments.forEach(function (p) {
+      var first = nextDate(p, new Date(now.getFullYear(), now.getMonth(), 1));
+      if (!first) return;
+      var r = repeatOf(p), rule;
+      if (r === 'weekly') rule = 'FREQ=WEEKLY';
+      else if (r === 'yearly') rule = 'FREQ=YEARLY;BYMONTH=' + (first.getMonth() + 1) + ';' + monthDayRule(p.day);
+      else rule = 'FREQ=MONTHLY;' + (r === 'quarterly' ? 'INTERVAL=3;' : '') + monthDayRule(p.day);
+      if (p.endDate) rule += ';UNTIL=' + p.endDate.replace(/-/g, '');
+      var title = '💶 ' + p.name + ' · ' + money.format(p.amount);
+      out.push('BEGIN:VEVENT', 'UID:bill-' + p.id + '@bills-dashboard', 'DTSTAMP:' + stamp,
+        'DTSTART;VALUE=DATE:' + icsDate(first), 'DTEND;VALUE=DATE:' + icsDate(addDays(first, 1)),
+        'RRULE:' + rule, 'SUMMARY:' + icsText(title), 'TRANSP:TRANSPARENT',
+        'BEGIN:VALARM', 'ACTION:DISPLAY', 'DESCRIPTION:' + icsText(title), 'TRIGGER:-P1DT15H', 'END:VALARM',  // 09:00, 2 days before
+        'END:VEVENT');
+    });
+    out.push('END:VCALENDAR');
+    return out.join('\r\n') + '\r\n';
+  }
+  function download(name, text, type) {
+    var blob = new Blob([text], { type: type });
+    var a = document.createElement('a');
+    a.href = URL.createObjectURL(blob);
+    a.download = name;
+    document.body.appendChild(a);
+    a.click();
+    setTimeout(function () { URL.revokeObjectURL(a.href); a.remove(); }, 1000);
+  }
+  $('#add-reminders').addEventListener('click', function () {
+    if (!state.payments.length) return;
+    download('bills-reminders.ics', makeIcs(), 'text/calendar');
+  });
+
+  // ---------- Export to Excel (.csv, in the separator Excel expects for the chosen language) ----------
+  $('#export-csv').addEventListener('click', function () {
+    var dec = (1.5).toLocaleString(lang).indexOf(',') > -1 ? ',' : '.', sep = dec === ',' ? ';' : ',';
+    function num(v) { return v == null ? '' : round2(v).toFixed(2).replace('.', dec); }
+    function cell(v) { v = v == null ? '' : String(v); return /[";,\n]/.test(v) ? '"' + v.replace(/"/g, '""') + '"' : v; }
+    var rows = [[t('type'), t('name'), t('category') + ' / ' + t('repeats'), t('month'), t('amount')]];
+    state.income.forEach(function (i) { rows.push([t('income'), i.name, t(i.kind === 'variable' ? 'variable' : 'fixed'), '', num(i.kind === 'fixed' ? i.amount : null)]);
+      Object.keys(i.entries || {}).sort().forEach(function (k) { rows.push([t('income'), i.name, t('logAmount'), k, num(i.entries[k])]); }); });
+    state.payments.forEach(function (p) { rows.push([t('payments'), p.name, catLabel(p.category).replace(/^\S+\s/, '') + ' / ' + t('r_' + repeatOf(p)), '', num(p.amount)]);
+      Object.keys(p.entries || {}).sort().forEach(function (k) { rows.push([t('payments'), p.name, t('logAmount'), k, num(p.entries[k])]); });
+      Object.keys(p.paid || {}).sort().forEach(function (k) { rows.push([t('payments'), p.name, t('paid'), k, num(owedInMonth(p, +k.slice(0, 4), +k.slice(5) - 1))]); }); });
+    state.payslips.forEach(function (sl) { var tt = payslipTotals(sl);
+      sl.lines.forEach(function (l) { rows.push([t('payslips'), incomeName(sl.incomeId), kindName(l.kind), sl.month, num(window.Payslip.KINDS[l.kind].side === 'deduct' ? -l.amount : l.amount)]); });
+      rows.push([t('payslips'), incomeName(sl.incomeId), t('net'), sl.month, num(tt.net)]); });
+    state.extras.forEach(function (x) { rows.push([t('extras'), x.label || kindName(x.kind), kindName(x.kind), x.month, num(x.amount)]); });
+    state.goals.forEach(function (g) { rows.push([t('goals'), g.name, t('target') + ' ' + num(g.target), g.by || '', num(g.saved)]); });
+    var csv = '﻿' + rows.map(function (r) { return r.map(cell).join(sep); }).join('\r\n');
+    download('bills-' + toDateInput(today()) + '.csv', csv, 'text/csv');
+  });
+
+  // ---------- PIN lock ----------
+  var PIN_KEY = 'bills-pin', LOCK_AFTER_MS = 60000;
+  var lockEl = $('#lock'), pinBuf = '', pinMode = null, firstPin = null, hiddenAt = 0;
+
+  function getPin() { try { return JSON.parse(localStorage.getItem(PIN_KEY) || 'null'); } catch (e) { return null; } }
+  function hashPin(pin, salt) {
+    var text = salt + ':' + pin;
+    if (window.crypto && crypto.subtle && window.isSecureContext) {
+      return crypto.subtle.digest('SHA-256', new TextEncoder().encode(text)).then(function (buf) {
+        return Array.prototype.map.call(new Uint8Array(buf), function (b) { return b.toString(16).padStart(2, '0'); }).join('');
+      });
+    }
+    var h = 5381; for (var i = 0; i < text.length; i++) h = ((h << 5) + h + text.charCodeAt(i)) >>> 0;  // fallback without https
+    return Promise.resolve('d' + h.toString(16));
+  }
+
+  function showLock(mode, msgKey) {
+    pinMode = mode; pinBuf = ''; firstPin = null;
+    $('#lock-msg').textContent = t(msgKey);
+    $('#pin-cancel').style.visibility = mode === 'unlock' ? 'hidden' : 'visible';
+    $('#pin-forgot').hidden = mode !== 'unlock';
+    drawDots();
+    lockEl.hidden = false;
+    document.body.classList.add('locked');
+  }
+  function hideLock() { lockEl.hidden = true; pinMode = null; document.body.classList.remove('locked'); }
+  function drawDots() { lockEl.querySelectorAll('#pin-dots span').forEach(function (d, i) { d.classList.toggle('f', i < pinBuf.length); }); }
+  function pinError(key) {
+    $('#lock-msg').textContent = t(key);
+    lockEl.querySelector('.lock-inner').classList.remove('shake'); void lockEl.offsetWidth;
+    lockEl.querySelector('.lock-inner').classList.add('shake');
+    pinBuf = ''; drawDots();
+  }
+  var pinBusy = false;
+  function pinDigit(d) {
+    if (pinBusy || pinBuf.length >= 4) return;
+    pinBuf += d; drawDots();
+    if (pinBuf.length === 4) pinComplete();
+  }
+  function pinComplete() {
+    var stored = getPin(), entered = pinBuf;
+    if (pinMode === 'unlock' || pinMode === 'remove') {
+      pinBusy = true;
+      hashPin(entered, stored.salt).then(function (h) {
+        pinBusy = false;
+        if (h !== stored.hash) return pinError('wrongPin');
+        if (pinMode === 'remove') { try { localStorage.removeItem(PIN_KEY); } catch (e) {} syncPinButton(); }
+        hideLock();
+      });
+    } else if (pinMode === 'new') {
+      firstPin = entered; pinMode = 'confirm'; pinBuf = ''; drawDots();
+      $('#lock-msg').textContent = t('confirmPin');
+    } else if (pinMode === 'confirm') {
+      if (entered !== firstPin) { pinMode = 'new'; firstPin = null; return pinError('pinsDiffer'); }
+      var salt = Math.random().toString(36).slice(2);
+      pinBusy = true;
+      hashPin(entered, salt).then(function (h) {
+        pinBusy = false;
+        try { localStorage.setItem(PIN_KEY, JSON.stringify({ salt: salt, hash: h })); } catch (e) { alert(t('saveFailed')); }
+        syncPinButton(); hideLock();
+      });
+    }
+  }
+  $('#pin-keys').addEventListener('click', function (e) {
+    var b = e.target.closest('button'); if (!b) return;
+    var k = b.getAttribute('data-key');
+    if (k === 'cancel') return hideLock();
+    if (k === 'back') { pinBuf = pinBuf.slice(0, -1); return drawDots(); }
+    pinDigit(b.textContent.trim());
+  });
+  document.addEventListener('keydown', function (e) {
+    if (lockEl.hidden) return;
+    if (/^\d$/.test(e.key)) pinDigit(e.key);
+    else if (e.key === 'Backspace') { pinBuf = pinBuf.slice(0, -1); drawDots(); }
+  });
+  $('#pin-forgot').addEventListener('click', function () {
+    if (!confirm(t('forgotConfirm'))) return;
+    try { localStorage.removeItem(STORAGE_KEY); localStorage.removeItem(PIN_KEY); } catch (e) {}
+    location.reload();
+  });
+  function syncPinButton() { $('#pin-toggle').textContent = t(getPin() ? 'removePin' : 'setPin'); }
+  $('#pin-toggle').addEventListener('click', function () {
+    if (getPin()) showLock('remove', 'enterPin'); else showLock('new', 'newPin');
+  });
+  document.addEventListener('visibilitychange', function () {
+    if (document.hidden) hiddenAt = Date.now();
+    else if (getPin() && lockEl.hidden && hiddenAt && Date.now() - hiddenAt > LOCK_AFTER_MS) showLock('unlock', 'enterPin');
+  });
+  if (getPin()) showLock('unlock', 'enterPin');
+
+  // ---------- Works offline: a service worker keeps a copy of the app on the phone ----------
+  if ('serviceWorker' in navigator && (location.protocol === 'https:' || location.hostname === 'localhost')) {
+    window.addEventListener('load', function () { navigator.serviceWorker.register('sw.js').catch(function () {}); });
+  }
+
   // ---------- Delete ----------
   function deleteItem(listName, id) {
     var list = state[listName];
@@ -1037,7 +1604,13 @@
     var id = btn.getAttribute('data-id');
     switch (btn.getAttribute('data-action')) {
       case 'edit-income': openIncomeForm(find(state.income, id)); break;
-      case 'log-income': openLogForm(find(state.income, id)); break;
+      case 'log-income': openLogForm(find(state.income, id), 'income'); break;
+      case 'log-payment': openLogForm(find(state.payments, id), 'payments'); break;
+      case 'toggle-paid': togglePaid(id); break;
+      case 'goal-money': openMoneyForm(find(state.goals, id), btn.getAttribute('data-suggest')); break;
+      case 'edit-goal': openGoalForm(find(state.goals, id)); break;
+      case 'delete-goal': deleteItem('goals', id); break;
+      case 'goal-nudge-close': try { localStorage.setItem('bills-goal-nudge', monthKey(today().getFullYear(), today().getMonth())); } catch (e2) {} render(); break;
       case 'delete-income': deleteItem('income', id); break;
       case 'edit-payment': openPaymentForm(find(state.payments, id)); break;
       case 'delete-payment': deleteItem('payments', id); break;
@@ -1084,5 +1657,6 @@
   // Refresh "today" if the app is left open overnight and you come back to it.
   document.addEventListener('visibilitychange', function () { if (!document.hidden) render(); });
 
+  syncPinButton();
   render();
 })();

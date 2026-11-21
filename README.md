@@ -7,6 +7,13 @@ A simple, private dashboard for your monthly income and bills.
 - **Summary**: total income this month, total to pay this month, and what's left over.
 - **Payslips**: take a photo of a Portuguese payslip (recibo de vencimento) or contract, or pick a picture. The app reads it, sorts every line into earnings and deductions (IRS, Segurança Social, …) in your language, and shows gross, deductions and net. You check the numbers before saving. A saved payslip's net becomes that month's real income.
 - **Extra pay (salários e dias extraordinários)**: subsídios de férias/Natal, duodécimos, overtime, work on rest days or holidays, prémios… Extras found on a payslip appear automatically; you can also add them by hand, with days.
+- **Tick bills as paid** each month; the summary shows what's **still to pay**, and unpaid bills past their date are marked overdue.
+- **Categories** for bills and a **"where your money goes"** ring chart.
+- **Month switcher** to look back or plan ahead, and a **6-month chart** of income vs bills (tap a month to open it).
+- Bills that repeat **weekly, every 3 months or yearly** (with "set aside €X a month"), and bills whose amount **changes each month** (log it, see the trend).
+- **Next 14 days** list, and **calendar reminders**: one tap adds every bill to your phone's calendar with an alert 2 days before.
+- **Savings goals** with progress and "€X a month until…"; money moved to a goal comes off that month's left over.
+- **PIN lock**, **works offline** once opened (install it on the home screen), and **export to Excel (.csv)**.
 - 39 European languages.
 - Day 🌞 / Night 🌙 toggle (your choice is remembered).
 - Everything is saved **only in your browser on your device**. There is no server and no account.
