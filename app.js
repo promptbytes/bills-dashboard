@@ -1659,6 +1659,22 @@
   });
   if (getPin()) showLock('unlock', 'enterPin');
 
+  // ---------- No pinch or double-tap zoom (it should feel like an app, not a web page) ----------
+  // iPhone Safari ignores user-scalable=no, so pinch gestures are blocked here as well.
+  ['gesturestart', 'gesturechange', 'gestureend'].forEach(function (ev) {
+    document.addEventListener(ev, function (e) { e.preventDefault(); }, { passive: false });
+  });
+  document.addEventListener('touchmove', function (e) {
+    if (e.touches.length > 1) e.preventDefault();                 // two fingers = pinch
+  }, { passive: false });
+  var lastTouchEnd = 0;
+  document.addEventListener('touchend', function (e) {
+    var now = Date.now();
+    // A second tap within 300 ms on something that isn't a button or field would zoom: stop it.
+    if (now - lastTouchEnd < 300 && !e.target.closest('button, a, input, select, textarea, label, summary')) e.preventDefault();
+    lastTouchEnd = now;
+  }, { passive: false });
+
   // ---------- Works offline: a service worker keeps a copy of the app on the phone ----------
   if ('serviceWorker' in navigator && (location.protocol === 'https:' || location.hostname === 'localhost')) {
     window.addEventListener('load', function () {

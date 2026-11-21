@@ -804,3 +804,5 @@ dialog.sheet.closing::backdrop { opacity: 0; transition: opacity .16s ease; }
 .keys .key-ok { font-size: 1.05rem; font-weight: 700; background: var(--accent); border-color: var(--accent); color: var(--accent-text); }
 .keys .key-ok:disabled { opacity: .45; cursor: default; }
 #pin-cancel { display: block; margin: 0 auto; }
+/* No double-tap zoom anywhere; taps also respond without the 300 ms wait */
+html, body, button, a, input, select, textarea, label, .card { touch-action: manipulation; }

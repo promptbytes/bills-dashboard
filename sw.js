@@ -1,7 +1,7 @@
 /* Keeps a copy of the app on the phone so it opens without internet.
    App files: try the network first (so updates arrive), fall back to the saved copy when offline.
    The big payslip-reader files: saved the first time they are used, then served from the phone. */
-var CACHE = 'bills-v4';
+var CACHE = 'bills-v5';
 var CORE = ['./', 'index.html', 'styles.css', 'app.js', 'i18n.js', 'i18n-payslip.js', 'i18n-more.js', 'payslip.js',
   'manifest.json', 'icon.svg', 'icon-180.png', 'icon-192.png', 'icon-512.png', 'vendor/tesseract/tesseract.min.js'];
 
