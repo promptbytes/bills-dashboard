@@ -157,9 +157,12 @@
   function getWorker() {
     if (!workerPromise) {
       workerPromise = window.Tesseract.createWorker('por', 1, {
-        workerPath: abs('vendor/tesseract/worker.min.js'),
+        // worker-wrap.js points the language download at its .wasm-named file, then starts the reader.
+        workerPath: abs('vendor/tesseract/worker-wrap.js'),
+        workerBlobURL: false,
         corePath: abs('vendor/tesseract/core'),
         langPath: abs('vendor/tesseract/lang'),
+        cacheMethod: 'none',
         logger: function (m) {
           if (!progressCb) return;
           if (m.status !== 'recognizing text') return;
