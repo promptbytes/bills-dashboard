@@ -1689,6 +1689,20 @@
     lastTouchEnd = now;
   }, { passive: false });
 
+  // Safety net: if the page ever ends up zoomed in anyway, snap back to normal size.
+  // Re-applying the viewport settings makes the phone reset its zoom.
+  if (window.visualViewport) {
+    var vpMeta = $('meta[name=viewport]'), vpContent = vpMeta.getAttribute('content'), snapTimer = null;
+    window.visualViewport.addEventListener('resize', function () {
+      if (window.visualViewport.scale <= 1.01) return;
+      clearTimeout(snapTimer);
+      snapTimer = setTimeout(function () {                    // wait until the fingers are off the screen
+        vpMeta.setAttribute('content', 'width=device-width, initial-scale=1.0001, maximum-scale=1, user-scalable=no, viewport-fit=cover');
+        setTimeout(function () { vpMeta.setAttribute('content', vpContent); }, 50);
+      }, 250);
+    });
+  }
+
   // ---------- Works offline: a service worker keeps a copy of the app on the phone ----------
   if ('serviceWorker' in navigator && (location.protocol === 'https:' || location.hostname === 'localhost')) {
     window.addEventListener('load', function () {
