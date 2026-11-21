@@ -10,7 +10,7 @@ A simple, private dashboard for your monthly income and bills.
 - **Tick bills as paid** each month; the summary shows what's **still to pay**, and unpaid bills past their date are marked overdue.
 - **Categories** for bills and a **"where your money goes"** ring chart.
 - **Month switcher** to look back or plan ahead, and a **6-month chart** of income vs bills (tap a month to open it).
-- Bills that repeat **weekly, every 3 months or yearly** (with "set aside €X a month"), and bills whose amount **changes each month** (log it, see the trend).
+- Bills that repeat **weekly, every 3 months or yearly**, or happen **just once** (with "set aside €X a month"), and bills whose amount **changes each month** (log it, see the trend).
 - **Next 14 days** list, and **calendar reminders**: one tap adds every bill to your phone's calendar with an alert 2 days before.
 - **Savings goals** with progress and "€X a month until…"; money moved to a goal comes off that month's left over.
 - **PIN lock**, **works offline** once opened (install it on the home screen), and **export to Excel (.csv)**.

@@ -704,3 +704,98 @@ body.locked main, body.locked .topbar { visibility: hidden; }
 @media (max-width: 360px) { .keys { grid-template-columns: repeat(3, 64px); } .keys button { height: 64px; } }
 .history li { flex-wrap: wrap; }
 .history li > span:first-child { min-width: 0; overflow-wrap: anywhere; }
+
+/* =========================================================================
+   Motion. Short, soft, and switched off for people who ask their phone for
+   less motion (prefers-reduced-motion).
+   ========================================================================= */
+:root { --ease-out: cubic-bezier(.22, 1, .36, 1); --ease-spring: cubic-bezier(.34, 1.56, .64, 1); }
+
+@keyframes fadeUp   { from { opacity: 0; transform: translateY(14px); } to { opacity: 1; transform: none; } }
+@keyframes fromRight { from { opacity: 0; transform: translateX(24px); } to { opacity: 1; transform: none; } }
+@keyframes fromLeft  { from { opacity: 0; transform: translateX(-24px); } to { opacity: 1; transform: none; } }
+@keyframes pop      { 0% { transform: scale(.6); } 60% { transform: scale(1.18); } 100% { transform: scale(1); } }
+@keyframes growUp   { from { transform: scaleY(0); } to { transform: scaleY(1); } }
+@keyframes growX    { from { transform: scaleX(0); } to { transform: scaleX(1); } }
+@keyframes ringIn   { from { opacity: 0; transform: rotate(-40deg) scale(.86); } to { opacity: 1; transform: none; } }
+@keyframes sheetIn  { from { opacity: 0; transform: translateY(24px) scale(.97); } to { opacity: 1; transform: none; } }
+@keyframes sheetOut { from { opacity: 1; transform: none; } to { opacity: 0; transform: translateY(16px) scale(.98); } }
+@keyframes fadeIn   { from { opacity: 0; } to { opacity: 1; } }
+@keyframes turn     { from { transform: rotate(-120deg) scale(.6); } to { transform: none; } }
+@keyframes strike   { from { background-size: 0 1.5px; } to { background-size: 100% 1.5px; } }
+
+/* Cards and rows enter one after another */
+body[data-anim] .summary > *,
+body[data-anim] .card-list > *,
+body[data-anim] #coming-list > li,
+body[data-anim] #cat-chart .legend > li {
+  animation: fadeUp .45s var(--ease-out) both;
+  animation-delay: calc(var(--i, 0) * 45ms);
+}
+body[data-anim="next"] .card-list > *, body[data-anim="next"] .summary > * { animation-name: fromRight; }
+body[data-anim="prev"] .card-list > *, body[data-anim="prev"] .summary > * { animation-name: fromLeft; }
+body[data-anim] .month-current { animation: fadeIn .3s ease both; }
+
+/* Charts draw themselves */
+body[data-anim] .donut { animation: ringIn .6s var(--ease-out) both; }
+body[data-anim] .hist path {
+  transform-box: fill-box; transform-origin: bottom;
+  animation: growUp .55s var(--ease-out) both;
+}
+body[data-anim] .hist-group:nth-of-type(1) path { animation-delay: 0ms; }
+body[data-anim] .hist-group:nth-of-type(2) path { animation-delay: 50ms; }
+body[data-anim] .hist-group:nth-of-type(3) path { animation-delay: 100ms; }
+body[data-anim] .hist-group:nth-of-type(4) path { animation-delay: 150ms; }
+body[data-anim] .hist-group:nth-of-type(5) path { animation-delay: 200ms; }
+body[data-anim] .hist-group:nth-of-type(6) path { animation-delay: 250ms; }
+body[data-anim] .progress span, .scan-progress .bar span { transform-origin: left; }
+body[data-anim] .progress span { animation: growX .7s var(--ease-out) .15s both; }
+.progress span { transition: width .5s var(--ease-out); }
+
+/* Sections fade up the first time they scroll into view */
+.reveal { opacity: 0; transform: translateY(18px); transition: opacity .5s ease, transform .6s var(--ease-out); }
+.reveal.shown { opacity: 1; transform: none; }
+
+/* Paid tick: pop, and the name gets struck through */
+.check { transition: background-color .2s ease, border-color .2s ease, color .2s ease, transform .15s ease; }
+.check:active { transform: scale(.9); }
+.just-toggled .check { animation: pop .38s var(--ease-spring); }
+.pay-card { transition: opacity .3s ease; }
+.pay-card.paid .card-name {
+  text-decoration: none;
+  background: linear-gradient(currentColor, currentColor) no-repeat 0 55% / 100% 1.5px;
+}
+.just-toggled.paid .card-name { animation: strike .35s var(--ease-out) both; }
+
+/* Forms rise in and drop away */
+dialog.sheet[open] { animation: sheetIn .26s var(--ease-out); }
+dialog.sheet[open]::backdrop { animation: fadeIn .22s ease; }
+dialog.sheet.closing { animation: sheetOut .16s ease forwards; }
+dialog.sheet.closing::backdrop { opacity: 0; transition: opacity .16s ease; }
+
+/* Small touches */
+.btn { transition: transform .12s ease, background-color .2s ease, border-color .2s ease, box-shadow .2s ease, filter .2s ease; }
+.btn:active { transform: scale(.96); }
+@media (hover: hover) {
+  .btn-primary:hover { filter: brightness(1.08); box-shadow: 0 4px 14px color-mix(in srgb, var(--accent) 35%, transparent); }
+  .card { transition: transform .2s var(--ease-out), box-shadow .2s ease; }
+  .card:hover { transform: translateY(-2px); box-shadow: 0 2px 4px rgba(16, 24, 40, .06), 0 10px 24px rgba(16, 24, 40, .10); }
+}
+.navbtn { transition: transform .12s ease, background-color .2s ease; }
+.navbtn:active { transform: scale(.88); }
+.segmented span, .chips-select span { transition: background-color .2s ease, color .2s ease, box-shadow .2s ease, border-color .2s ease; }
+.theme-icon { display: inline-block; }
+.theme-icon.turn { animation: turn .45s var(--ease-spring); }
+.badge { transition: background-color .2s ease, color .2s ease; }
+.pin-dots span { transition: background-color .15s ease, transform .15s var(--ease-spring); }
+.pin-dots span.f { transform: scale(1.15); }
+.keys button { transition: transform .1s ease, background-color .15s ease; }
+.keys button:active { transform: scale(.92); }
+.lock:not([hidden]) .lock-inner { animation: fadeUp .35s var(--ease-out); }
+.line-row, .timeline li { animation: fadeUp .3s var(--ease-out) both; }
+.empty { animation: fadeIn .4s ease both; }
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after { animation: none !important; transition: none !important; }
+  .reveal { opacity: 1; transform: none; }
+}

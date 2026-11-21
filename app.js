@@ -148,6 +148,10 @@
   // Weekly: every 7 days from the start date. Every 3 months / yearly: counted from the start date's month.
   function datesInMonth(item, y, m) {
     var out = [], r = repeatOf(item), start = parseDate(item.startDate);
+    if (r === 'once') {                       // a single payment on its start date
+      if (start && start.getFullYear() === y && start.getMonth() === m) out.push(start);
+      return out;
+    }
     if (r === 'weekly') {
       if (!start) return out;
       var first = new Date(y, m, 1), last = new Date(y, m + 1, 0);
@@ -256,6 +260,8 @@
   }
   applyTheme(document.documentElement.getAttribute('data-theme') || 'light');
   $('#theme-toggle').addEventListener('click', function () {
+    var ic = $('.theme-icon');
+    ic.classList.remove('turn'); void ic.offsetWidth; ic.classList.add('turn');
     var next = document.documentElement.getAttribute('data-theme') === 'dark' ? 'light' : 'dark';
     applyTheme(next);
     try { localStorage.setItem(THEME_KEY, next); } catch (e) {}
@@ -291,7 +297,40 @@
   // ---------- The month being looked at (arrows at the top) ----------
   var view = (function () { var n = today(); return { y: n.getFullYear(), m: n.getMonth() }; })();
   function isCurrentView() { var n = today(); return view.y === n.getFullYear() && view.m === n.getMonth(); }
-  function shiftView(d) { var x = new Date(view.y, view.m + d, 1); view = { y: x.getFullYear(), m: x.getMonth() }; render(); }
+  function shiftView(d) { var x = new Date(view.y, view.m + d, 1); view = { y: x.getFullYear(), m: x.getMonth() }; animMode = d > 0 ? 'next' : 'prev'; render(); }
+
+  // ---------- Motion ----------
+  var reduceMotion = window.matchMedia && matchMedia('(prefers-reduced-motion: reduce)').matches;
+  var animMode = 'load';      // 'load' | 'next' | 'prev' | null: how the next render enters
+  var justToggled = null;     // the bill whose paid tick was just tapped (it gets a little pop)
+
+  // Money amounts count to their new value instead of jumping.
+  function setMoney(el, value) {
+    var from = parseFloat(el.getAttribute('data-v'));
+    el.setAttribute('data-v', value);
+    if (reduceMotion || isNaN(from) || from === value || animMode === 'load') { el.textContent = money.format(value); return; }
+    var start = performance.now(), dur = 450;
+    cancelAnimationFrame(el._raf);
+    (function step(now) {
+      var k = Math.min(1, (now - start) / dur), e = 1 - Math.pow(1 - k, 3);
+      el.textContent = money.format(round2(from + (value - from) * e));
+      if (k < 1) el._raf = requestAnimationFrame(step);
+    })(start);
+  }
+
+  // Cards, rows and chart parts enter one after another (on first open and when the month changes).
+  function playEnter() {
+    if (reduceMotion || !animMode) { animMode = null; return; }
+    document.body.setAttribute('data-anim', animMode);
+    ['.summary', '#income-list', '#payment-list', '#coming-list', '#goal-list', '#extra-list', '#payslip-list', '#cat-chart .legend'].forEach(function (sel) {
+      var box = $(sel); if (!box) return;
+      Array.prototype.forEach.call(box.children, function (el, i) { el.style.setProperty('--i', Math.min(i, 8)); });
+    });
+    document.querySelectorAll('.hist-group').forEach(function (g, i) { g.style.setProperty('--i', i); });
+    clearTimeout(playEnter._t);
+    playEnter._t = setTimeout(function () { document.body.removeAttribute('data-anim'); }, 900);
+    animMode = null;
+  }
 
   // Everything that adds up for one month.
   function monthTotals(y, m) {
@@ -334,11 +373,11 @@
     $('#next-month').setAttribute('aria-label', monthFmt.format(new Date(y, m + 1, 1)));
 
     var tot = monthTotals(y, m);
-    $('#total-income').textContent = money.format(tot.income);
-    $('#total-owe').textContent = money.format(tot.owe);
-    $('#still-to-pay').textContent = money.format(tot.still);
+    setMoney($('#total-income'), tot.income);
+    setMoney($('#total-owe'), tot.owe);
+    setMoney($('#still-to-pay'), tot.still);
     var leftEl = $('#left-over');
-    leftEl.textContent = money.format(tot.left);
+    setMoney(leftEl, tot.left);
     leftEl.className = 'stat-value ' + (tot.left < 0 ? 'negative' : tot.left > 0 ? 'positive' : '');
 
     var note = $('#summary-note');
@@ -427,6 +466,8 @@
     renderPayslips();
     renderExtras(y);
     renderGoals(tot);
+    playEnter();
+    justToggled = null;
   }
 
   // A bill's state in the viewed month. Weekly bills are never "overdue": only their coming dates matter.
@@ -451,7 +492,7 @@
       ? '<button type="button" class="check' + (row.paid ? ' on' : '') + '" data-action="toggle-paid" data-id="' + p.id + '" aria-pressed="' + row.paid + '" aria-label="' + escapeHtml(t('paid') + ': ' + p.name) + '">✓</button>'
       : '<span class="check off" aria-hidden="true"></span>';
     return '' +
-      '<article class="card pay-card' + (row.paid ? ' paid' : '') + (row.next || row.ds.length ? '' : ' is-inactive') + '">' +
+      '<article class="card pay-card' + (row.paid ? ' paid' : '') + (p.id === justToggled ? ' just-toggled' : '') + (row.next || row.ds.length ? '' : ' is-inactive') + '">' +
         '<div class="pay-row">' + check +
         '<div class="pay-body">' +
           '<div class="card-top">' +
@@ -468,10 +509,11 @@
         '</div></div>' +
         (p.variable ? sparkline(p) : '') +
         '<dl class="card-meta">' +
-          '<div><dt>' + escapeHtml(t('nextDue')) + '</dt><dd>' + (row.next ? dateFmt.format(row.next) : escapeHtml(t('ended'))) + '</dd></div>' +
+          (r === 'once' ? '' : '<div><dt>' + escapeHtml(t('nextDue')) + '</dt><dd>' + (row.next ? dateFmt.format(row.next) : escapeHtml(t('ended'))) + '</dd></div>') +
+          (r === 'once' ? '<div><dt>' + escapeHtml(t('dueDate')) + '</dt><dd>' + dateFmt.format(parseDate(p.startDate)) + '</dd></div>' :
           (r === 'weekly' ? '' : '<div><dt>' + escapeHtml(t('dueOnDay')) + '</dt><dd>' + p.day + '</dd></div>') +
           '<div><dt>' + escapeHtml(t('startDate')) + '</dt><dd>' + dateFmt.format(parseDate(p.startDate)) + '</dd></div>' +
-          '<div><dt>' + escapeHtml(t('endDate')) + '</dt><dd>' + (p.endDate ? dateFmt.format(parseDate(p.endDate)) : '—') + '</dd></div>' +
+          '<div><dt>' + escapeHtml(t('endDate')) + '</dt><dd>' + (p.endDate ? dateFmt.format(parseDate(p.endDate)) : '—') + '</dd></div>') +
         '</dl>' +
         '<div class="card-actions">' +
           (p.variable ? '<button class="btn btn-primary btn-small" type="button" data-action="log-payment" data-id="' + p.id + '">' + escapeHtml(t('logAmount')) + '</button>' : '') +
@@ -723,8 +765,13 @@
     else dlg.setAttribute('open', '');
   }
   function closeDialog(dlg) {
-    if (typeof dlg.close === 'function') dlg.close();
-    else dlg.removeAttribute('open');
+    function done() {
+      dlg.classList.remove('closing');
+      if (typeof dlg.close === 'function') dlg.close(); else dlg.removeAttribute('open');
+    }
+    if (reduceMotion || !dlg.open) return done();
+    dlg.classList.add('closing');
+    setTimeout(done, 160);
   }
   document.querySelectorAll('dialog').forEach(function (dlg) {
     dlg.addEventListener('click', function (e) { if (e.target === dlg) closeDialog(dlg); }); // tap outside closes
@@ -856,13 +903,26 @@
 
   function syncPaymentForm() {
     var f = paymentForm.elements, r = f.repeat.value, period = PERIOD[r] || 1;
-    $('[data-day-field]', paymentForm).hidden = r === 'weekly';
+    $('[data-day-field]', paymentForm).hidden = r === 'weekly' || r === 'once';
+    $('[data-end-field]', paymentForm).hidden = r === 'once';
+    $('[data-start-label]', paymentForm).textContent = t(r === 'once' ? 'dueDate' : 'startDate');
     $('[data-amount-label]', paymentForm).textContent = f.variable.checked ? t('usualAmount') : t('amount');
     var amt = parseNumber(f.amount.value), note = $('#set-aside-note');
     note.hidden = !(period > 1 && amt > 0);
     if (!note.hidden) note.textContent = '💡 ' + t('setAside', { amount: money.format(round2(amt / period)) });
   }
-  paymentForm.addEventListener('change', syncPaymentForm);
+  paymentForm.addEventListener('change', function (e) {
+    // Switching to one-time: put the date on the day the bill would have been due.
+    if (e.target.name === 'repeat' && e.target.value === 'once') {
+      var f = paymentForm.elements, st = parseDate(f.startDate.value), day = Number(f.day.value);
+      if (st && day >= 1 && day <= 31) {
+        var d = occurrence(st.getFullYear(), st.getMonth(), day);
+        if (d < st) d = occurrence(st.getFullYear(), st.getMonth() + 1, day);
+        f.startDate.value = toDateInput(d);
+      }
+    }
+    syncPaymentForm();
+  });
   paymentForm.addEventListener('input', syncPaymentForm);
 
   function openPaymentForm(p) {
@@ -893,7 +953,8 @@
     e.preventDefault();
     var f = paymentForm.elements;
     var repeat = f.repeat.value || 'monthly';
-    var common = validateCommon(paymentForm, f.endDate.value, repeat === 'weekly');
+    var once = repeat === 'once';
+    var common = validateCommon(paymentForm, once ? '' : f.endDate.value, repeat === 'weekly' || once);
     if (!common) return;
     var amount = readAmount(f.amount);
     if (isNaN(amount)) return showError(paymentForm, t('errAmount'), f.amount);
@@ -1298,6 +1359,7 @@
     if (!p) return;
     var key = monthKey(view.y, view.m);
     p.paid = p.paid || {};
+    justToggled = id;
     if (p.paid[key]) delete p.paid[key];
     else {
       var n = today(), ds = datesInMonth(p, view.y, view.m);
@@ -1312,13 +1374,15 @@
   $('#prev-month').addEventListener('click', function () { shiftView(-1); });
   $('#next-month').addEventListener('click', function () { shiftView(1); });
   $('#month-current').addEventListener('click', function () {
-    var n = today(); view = { y: n.getFullYear(), m: n.getMonth() }; render();
+    var n = today(), back = new Date(n.getFullYear(), n.getMonth(), 1) < new Date(view.y, view.m, 1);
+    view = { y: n.getFullYear(), m: n.getMonth() }; animMode = back ? 'prev' : 'next'; render();
   });
   function pickHistMonth(e) {
     var g = e.target.closest && e.target.closest('.hist-group');
     if (!g) return;
     if (e.type === 'keydown' && e.key !== 'Enter' && e.key !== ' ') return;
     var parts = g.getAttribute('data-month').split('-').map(Number);
+    animMode = new Date(parts[0], parts[1], 1) < new Date(view.y, view.m, 1) ? 'prev' : 'next';
     view = { y: parts[0], m: parts[1] };
     render();
     $('#month-current').scrollIntoView({ behavior: 'smooth', block: 'center' });
@@ -1440,16 +1504,19 @@
       var first = nextDate(p, new Date(now.getFullYear(), now.getMonth(), 1));
       if (!first) return;
       var r = repeatOf(p), rule;
-      if (r === 'weekly') rule = 'FREQ=WEEKLY';
+      if (r === 'once') rule = null;
+      else if (r === 'weekly') rule = 'FREQ=WEEKLY';
       else if (r === 'yearly') rule = 'FREQ=YEARLY;BYMONTH=' + (first.getMonth() + 1) + ';' + monthDayRule(p.day);
       else rule = 'FREQ=MONTHLY;' + (r === 'quarterly' ? 'INTERVAL=3;' : '') + monthDayRule(p.day);
-      if (p.endDate) rule += ';UNTIL=' + p.endDate.replace(/-/g, '');
+      if (rule && p.endDate) rule += ';UNTIL=' + p.endDate.replace(/-/g, '');
       var title = '💶 ' + p.name + ' · ' + money.format(p.amount);
-      out.push('BEGIN:VEVENT', 'UID:bill-' + p.id + '@bills-dashboard', 'DTSTAMP:' + stamp,
-        'DTSTART;VALUE=DATE:' + icsDate(first), 'DTEND;VALUE=DATE:' + icsDate(addDays(first, 1)),
-        'RRULE:' + rule, 'SUMMARY:' + icsText(title), 'TRANSP:TRANSPARENT',
+      var ev = ['BEGIN:VEVENT', 'UID:bill-' + p.id + '@bills-dashboard', 'DTSTAMP:' + stamp,
+        'DTSTART;VALUE=DATE:' + icsDate(first), 'DTEND;VALUE=DATE:' + icsDate(addDays(first, 1))];
+      if (rule) ev.push('RRULE:' + rule);                       // one-time bills have no repeat rule
+      ev.push('SUMMARY:' + icsText(title), 'TRANSP:TRANSPARENT',
         'BEGIN:VALARM', 'ACTION:DISPLAY', 'DESCRIPTION:' + icsText(title), 'TRIGGER:-P1DT15H', 'END:VALARM',  // 09:00, 2 days before
         'END:VEVENT');
+      out.push.apply(out, ev);
     });
     out.push('END:VCALENDAR');
     return out.join('\r\n') + '\r\n';
@@ -1659,4 +1726,13 @@
 
   syncPinButton();
   render();
+
+  if (!reduceMotion && 'IntersectionObserver' in window) {
+    var io = new IntersectionObserver(function (entries) {
+      entries.forEach(function (en) { if (en.isIntersecting) { en.target.classList.add('shown'); io.unobserve(en.target); } });
+    }, { rootMargin: '0px 0px -8% 0px' });
+    document.querySelectorAll('main > .section, .footer').forEach(function (sec) {
+      if (sec.getBoundingClientRect().top > innerHeight) { sec.classList.add('reveal'); io.observe(sec); }
+    });
+  }
 })();
