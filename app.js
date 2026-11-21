@@ -1186,6 +1186,7 @@
   function startScan(file) {
     if (!file) return;
     scanBox.hidden = false;
+    $('#scan-why').hidden = true;
     $('#scan-bar').style.width = '0%';
     $('#scan-status').textContent = t('reading', { pct: 0 });
     var isPdf = /pdf$/i.test(file.type || '') || /\.pdf$/i.test(file.name || '');
@@ -1205,11 +1206,15 @@
       openPayslipForm(null, {
         // A contract's date is when it was signed, not a pay month, so a contract starts on the current month.
         lines: r.items, month: contract ? null : r.month, detectedNet: r.net, text: out.text,
-        looksLikeContract: contract, fromPdf: !!out.fromPdf
+        looksLikeContract: contract, fromPdf: !!out.fromPdf, confidence: out.confidence
       });
-    }, function () {
+    }, function (err) {
       $('#scan-bar').style.width = '0%';
       $('#scan-status').textContent = t('readFailed');
+      // A small italic note with the reason, when we know it.
+      var why = $('#scan-why');
+      why.textContent = err && err.reason ? t(err.reason) : '';
+      why.hidden = !why.textContent;
     });
   }
   ['#scan-camera', '#scan-file', '#scan-pdf'].forEach(function (sel) {
@@ -1375,6 +1380,24 @@
     setAutoDeduction('irs'); applyAuto(); recalc();
   });
 
+  // After a scan: a small italic note saying what could not be read, so it can be checked by hand.
+  function renderScanIssues(scanned) {
+    var box = $('#scan-issues');
+    if (!scanned) { box.hidden = true; box.innerHTML = ''; return; }
+    var out = [], withAmount = scanned.lines.filter(function (l) { return l.amount != null && l.amount !== ''; });
+    if (!withAmount.length) out.push(t('issNothing'));
+    var missing = scanned.lines.filter(function (l) { return l.amount == null || l.amount === ''; })
+      .map(function (l) { return kindName(l.kind); });
+    if (missing.length) out.push(t('issAmounts', { names: missing.join(', ') }));
+    if (!scanned.looksLikeContract && withAmount.length) {
+      if (!scanned.month) out.push(t('issMonth'));
+      if (scanned.detectedNet == null) out.push(t('issNet'));
+    }
+    if (!scanned.fromPdf && scanned.confidence != null && scanned.confidence < 70 && withAmount.length) out.push(t('issBlurry'));
+    box.innerHTML = out.map(function (x) { return '<li>' + escapeHtml(x) + '</li>'; }).join('');
+    box.hidden = !out.length;
+  }
+
   function openPayslipForm(slip, scanned) {
     editingSlipId = slip ? slip.id : null;
     detectedNet = scanned ? scanned.detectedNet : null;
@@ -1392,6 +1415,7 @@
     var lines = slip ? slip.lines : (scanned ? scanned.lines : []);
     lines.forEach(function (l) { addLineRow(window.Payslip.KINDS[l.kind].side, l); });
     if (!lines.some(function (l) { return window.Payslip.KINDS[l.kind].side === 'earn'; })) addLineRow('earn');
+    renderScanIssues(scanned);
     $('#payslip-check').hidden = !scanned || !!scanned.fromPdf;
     $('#payslip-frompdf').hidden = !(scanned && scanned.fromPdf);
     $('#payslip-contract').hidden = !(scanned && scanned.looksLikeContract);

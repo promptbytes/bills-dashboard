@@ -198,7 +198,7 @@
         URL.revokeObjectURL(url);
         resolve(c);
       };
-      img.onerror = function () { URL.revokeObjectURL(url); reject(new Error('image')); };
+      img.onerror = function () { URL.revokeObjectURL(url); var e = new Error('image'); e.reason = 'errImage'; reject(e); };
       img.src = url;
     });
   }
@@ -240,10 +240,10 @@
     return Promise.all([getWorker(), prepareImage(file, large)]).then(function (r) {
       progressMap = [from, to];
       return r[0].recognize(r[1], { rotateAuto: true });
-    }).then(function (res) { return res.data.text || ''; });
+    }).then(function (res) { lastConfidence = res.data.confidence; return res.data.text || ''; });
   }
 
-  var progressMap = [0, 100];
+  var progressMap = [0, 100], lastConfidence = null;
 
   // Returns { text, result }. Reads once; if the numbers don't add up, reads again enlarged and combines.
   function scan(file, onProgress) {
@@ -252,12 +252,13 @@
     if (progressCb) progressCb(0);
     var first;
     return readOnce(file, false, 0, 60).then(function (text) {
-      first = { text: text, result: parse(text) };
+      first = { text: text, result: parse(text), confidence: lastConfidence };
       if (looksRight(first.result)) return first;
       return readOnce(file, true, 60, 100).then(function (text2) {
-        var second = parse(text2);
-        if (looksRight(second)) return { text: text2, result: second };
-        return { text: text + '\n\n----\n\n' + text2, result: merge(first.result, second) };
+        var second = parse(text2), conf2 = lastConfidence;
+        if (looksRight(second)) return { text: text2, result: second, confidence: conf2 };
+        return { text: text + '\n\n----\n\n' + text2, result: merge(first.result, second),
+                 confidence: Math.max(first.confidence || 0, conf2 || 0) };
       });
     }).then(function (out) {
       if (progressCb) progressCb(100);
@@ -329,7 +330,9 @@
             var pw = askPassword(err.code === 2);     // code 2 = the password typed was wrong
             if (pw != null && pw !== '') return open(pw, triesLeft - 1);
           }
-          throw err;
+          var e2 = new Error('pdf');
+          e2.reason = err && err.name === 'PasswordException' ? 'errPdfPassword' : 'errPdfDamaged';
+          throw e2;
         });
       }
       return open(undefined, 3);
