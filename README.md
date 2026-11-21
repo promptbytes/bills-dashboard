@@ -14,6 +14,9 @@ A simple, private dashboard for your monthly income and bills.
 - **Next 14 days** list, and **calendar reminders**: one tap adds every bill to your phone's calendar with an alert 2 days before.
 - **Savings goals** with progress and "€X a month until…"; money moved to a goal comes off that month's left over.
 - **PIN lock**, **works offline** once opened (install it on the home screen), and **export to Excel (.csv)**.
+- **Safe to spend**: how much you can spend per day until your next payday, after the bills due before then.
+- **IRS summary** per year from your saved payslips (gross, IRS withheld, Segurança Social, net, subsídios, meal allowance), with which months are missing and a .csv export.
+- **PDF payslips**: text PDFs are read exactly; scanned PDFs fall back to the photo reader; password-protected PDFs ask for the password. Read on the device with [pdf.js](https://mozilla.github.io/pdf.js/) (Apache 2.0, bundled in `vendor/pdfjs/`).
 - 39 European languages.
 - Day 🌞 / Night 🌙 toggle (your choice is remembered).
 - Everything is saved **only in your browser on your device**. There is no server and no account.

@@ -814,3 +814,36 @@ html, body, button, a, input, select, textarea, label, .card { touch-action: man
 /* Forms scroll on their own without dragging the page behind them */
 .sheet { overscroll-behavior: contain; -webkit-overflow-scrolling: touch; }
 html.scroll-locked, html.scroll-locked body { overscroll-behavior: none; }
+
+/* ---------- Safe to spend ---------- */
+.safe-card {
+  margin: 0 0 12px; padding: 16px; border-radius: var(--radius);
+  background: linear-gradient(135deg, color-mix(in srgb, var(--accent) 20%, var(--surface)), var(--surface));
+  border: 1px solid color-mix(in srgb, var(--accent) 40%, var(--border));
+  box-shadow: var(--shadow);
+}
+.safe-label { color: var(--muted); font-size: .85rem; }
+.safe-big { font-size: 2.2rem; font-weight: 800; letter-spacing: -.02em; line-height: 1.1; margin-top: 2px; overflow-wrap: anywhere; }
+.safe-big small { font-size: 1rem; font-weight: 600; color: var(--muted); letter-spacing: 0; }
+.safe-sub { color: var(--muted); font-size: .88rem; margin-top: 6px; }
+.safe-bar { height: 8px; border-radius: 999px; background: var(--surface-2); overflow: hidden; margin-top: 12px; }
+.safe-bar span { display: block; height: 100%; border-radius: 999px; background: var(--accent); transition: width .5s var(--ease-out, ease); }
+body[data-anim] .safe-card { animation: fadeUp .45s var(--ease-out) both; }
+
+/* ---------- IRS summary ---------- */
+.irs-card { margin-top: 12px; }
+.irs-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.irs-head b { font-size: 1.05rem; }
+.irs-head .navbtn:disabled { opacity: .35; cursor: default; }
+.irs-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-top: 12px; }
+.irs-grid div { background: var(--surface-2); border-radius: var(--radius-sm); padding: 10px 12px; display: flex; flex-direction: column; min-width: 0; }
+.irs-grid span { color: var(--muted); font-size: .78rem; }
+.irs-grid strong { font-size: 1.02rem; font-variant-numeric: tabular-nums; overflow-wrap: anywhere; }
+.irs-count { margin-top: 12px; }
+.irs-months { display: grid; grid-template-columns: repeat(12, 1fr); gap: 4px; margin: 8px 0 10px; }
+.irs-months i {
+  height: 24px; border-radius: 6px; background: var(--surface-2); color: var(--muted);
+  font: 600 .65rem system-ui, sans-serif; font-style: normal; display: flex; align-items: center; justify-content: center;
+}
+.irs-months i.ok { background: color-mix(in srgb, var(--income) 30%, var(--surface-2)); color: var(--text); }
+.notice.ok { background: color-mix(in srgb, var(--income) 15%, transparent); }

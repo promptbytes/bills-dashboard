@@ -48,6 +48,8 @@
       <button type="button" class="navbtn" id="next-month">›</button>
     </nav>
 
+    <div class="safe-card" id="safe-card" hidden></div>
+
     <section class="summary">
       <div class="stat">
         <span class="stat-label" data-i18n="income">Income</span>
@@ -118,15 +120,18 @@
         <div class="scan-actions">
           <label class="btn btn-primary" for="scan-camera">📷 <span data-i18n="takePhoto">Take photo</span></label>
           <label class="btn btn-ghost" for="scan-file">🖼️ <span data-i18n="choosePhoto">Choose picture</span></label>
+          <label class="btn btn-ghost" for="scan-pdf">📄 <span data-i18n="choosePdf">Choose PDF</span></label>
           <button class="btn btn-ghost" type="button" id="manual-payslip" data-i18n="addByHand">Fill in by hand</button>
         </div>
         <input type="file" id="scan-camera" accept="image/*" capture="environment" hidden>
         <input type="file" id="scan-file" accept="image/*" hidden>
+        <input type="file" id="scan-pdf" accept="application/pdf,.pdf" hidden>
         <div class="scan-progress" id="scan-progress" hidden>
           <div class="bar"><span id="scan-bar"></span></div>
           <p class="help" id="scan-status"></p>
         </div>
       </div>
+      <article class="card irs-card" id="irs-card" hidden></article>
       <div class="card-list" id="payslip-list"></div>
     </section>
 
@@ -317,6 +322,7 @@
     <form method="dialog" id="payslip-form" novalidate>
       <h3 id="payslip-form-title" data-i18n="payslips">Payslip</h3>
       <p class="notice" id="payslip-check" data-i18n="checkNumbers" hidden></p>
+      <p class="notice" id="payslip-frompdf" data-i18n="fromPdf" hidden></p>
       <p class="notice" id="payslip-contract" data-i18n="contractHint" hidden></p>
 
       <div class="field-row">
@@ -354,6 +360,7 @@
         <div class="totals-net"><span data-i18n="net">Net</span><strong id="calc-net" class="positive"></strong></div>
       </div>
       <p class="notice warn" id="payslip-mismatch" hidden></p>
+      <p class="notice ok" id="payslip-match" hidden></p>
 
       <details class="ocr-text" id="ocr-details" hidden>
         <summary data-i18n="showText">Show recognised text</summary>

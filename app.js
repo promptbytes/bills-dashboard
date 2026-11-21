@@ -12,7 +12,7 @@
   var LANGS = window.I18N, KEYS = window.I18N_KEYS;
   var lang = pickLanguage();
   var strings = {};
-  var money, dateFmt, shortDateFmt, monthFmt, relFmt, monthShortFmt, weekdayFmt, moneyShort;
+  var money, dateFmt, shortDateFmt, monthFmt, relFmt, monthShortFmt, weekdayFmt, moneyShort, moneyWhole;
 
   function pickLanguage() {
     var saved = null;
@@ -58,6 +58,7 @@
       weekdayFmt = { format: function () { return ''; } };
       moneyShort = new Intl.NumberFormat('de', { style: 'currency', currency: 'EUR', maximumFractionDigits: 0 });
     }
+    moneyWhole = new Intl.NumberFormat(supports(Intl.DateTimeFormat) ? lang : 'de', { style: 'currency', currency: 'EUR', maximumFractionDigits: 0, minimumFractionDigits: 0 });
     relFmt = supports(Intl.RelativeTimeFormat) ? new Intl.RelativeTimeFormat(lang, { numeric: 'auto' }) : null;
   }
 
@@ -388,6 +389,7 @@
     gNote.textContent = tot.goals ? t('movedToGoals', { amount: money.format(tot.goals) }) : '';
 
     renderComingUp(now);
+    renderSafe(now);
 
     // Income cards
     var incList = $('#income-list');
@@ -464,6 +466,7 @@
     renderCategories(tot);
     renderHistory6();
     renderPayslips();
+    renderIrs();
     renderExtras(y);
     renderGoals(tot);
     playEnter();
@@ -547,6 +550,123 @@
     var p = key.split('-').map(Number);
     return monthShortFmt.format(new Date(p[0], p[1] - 1, 1));
   }
+
+  // ---------- Safe to spend: this pay's money left after this cycle's bills, per day until payday ----------
+  function payAmount(inc, d) {
+    var key = monthKey(d.getFullYear(), d.getMonth()), slip = payslipFor(inc.id, key);
+    if (slip) return payslipTotals(slip).net;
+    if (inc.kind === 'variable') return inc.entries && typeof inc.entries[key] === 'number' ? inc.entries[key] : 0;
+    return inc.amount;
+  }
+  function datesBetween(item, from, to) {        // dates in [from, to)
+    var out = [], d = new Date(from.getFullYear(), from.getMonth(), 1);
+    for (var i = 0; i < 3 && d < to; i++, d = new Date(d.getFullYear(), d.getMonth() + 1, 1)) {
+      datesInMonth(item, d.getFullYear(), d.getMonth()).forEach(function (x) { if (x >= from && x < to) out.push(x); });
+    }
+    return out;
+  }
+  function renderSafe(now) {
+    var card = $('#safe-card');
+    var tomorrow = addDays(now, 1), next = null, last = null;
+    state.income.forEach(function (inc) {
+      var n = nextDate(inc, tomorrow);
+      if (n && (!next || n < next)) next = n;
+      for (var k = 0; k < 2; k++) {                 // latest payday up to today (this or last month)
+        var d0 = new Date(now.getFullYear(), now.getMonth() - k, 1);
+        datesInMonth(inc, d0.getFullYear(), d0.getMonth()).forEach(function (d) { if (d <= now && (!last || d > last)) last = d; });
+      }
+    });
+    if (!isCurrentView() || !next) { card.hidden = true; return; }
+    if (!last) last = new Date(now.getFullYear(), now.getMonth(), 1);
+    var pay = 0, bills = 0;
+    state.income.forEach(function (inc) { datesBetween(inc, last, next).forEach(function (d) { pay += payAmount(inc, d); }); });
+    if (pay <= 0) { card.hidden = true; return; }
+    state.payments.forEach(function (p) {
+      datesBetween(p, last, next).forEach(function (d) { bills += amountFor(p, monthKey(d.getFullYear(), d.getMonth())); });
+    });
+    var goals = 0, gk = monthKey(now.getFullYear(), now.getMonth());
+    state.goals.forEach(function (g) { goals += (g.moves && g.moves[gk]) || 0; });
+    var cycleDays = Math.max(1, daysBetween(last, next)), daysLeft = Math.max(1, daysBetween(now, next));
+    var free = pay - bills - goals, daily = Math.max(0, free / cycleDays);
+    var left = daily * daysLeft, payday = shortDateFmt.format(next);
+    card.hidden = false;
+    card.innerHTML =
+      '<div class="safe-label">' + escapeHtml(t('safeToSpend')) + '</div>' +
+      '<div class="safe-big">' + escapeHtml(moneyWhole.format(Math.floor(daily))) + ' <small>' + escapeHtml(t('aDay')) + '</small></div>' +
+      '<div class="safe-sub">' + escapeHtml(free > 0
+        ? t('safeSub', { amount: moneyWhole.format(Math.floor(left)), days: daysLeft, date: weekdayFmt.format(next) + ' ' + payday })
+        : t('safeNone')) + '</div>' +
+      '<div class="safe-bar" role="img" aria-label="' + daysLeft + ' / ' + cycleDays + '"><span style="width:' + Math.round(daysLeft / cycleDays * 100) + '%"></span></div>';
+  }
+
+  // ---------- IRS summary of a year, built from saved payslips ----------
+  var irsYear = null;
+  function renderIrs() {
+    var card = $('#irs-card');
+    var years = state.payslips.map(function (p) { return +p.month.slice(0, 4); });
+    if (!years.length) { card.hidden = true; return; }
+    if (irsYear == null || years.indexOf(irsYear) < 0) {
+      var cy = today().getFullYear();
+      irsYear = years.indexOf(cy) > -1 ? cy : Math.max.apply(null, years);
+    }
+    var s2 = irsTotals(irsYear);
+    var minY = Math.min.apply(null, years), maxY = Math.max.apply(null, years);
+    var monthCells = '';
+    for (var m = 0; m < 12; m++) {
+      var has = s2.months.indexOf(m) > -1;
+      monthCells += '<i class="' + (has ? 'ok' : '') + '" title="' + escapeHtml(monthFmt.format(new Date(irsYear, m, 1))) + '">' +
+        (m + 1) + '</i>';
+    }
+    card.hidden = false;
+    card.innerHTML =
+      '<div class="irs-head"><button type="button" class="navbtn" data-irs="-1"' + (irsYear <= minY ? ' disabled' : '') + ' aria-label="' + (irsYear - 1) + '">‹</button>' +
+        '<b>IRS ' + irsYear + '</b><button type="button" class="navbtn" data-irs="1"' + (irsYear >= maxY ? ' disabled' : '') + ' aria-label="' + (irsYear + 1) + '">›</button></div>' +
+      '<div class="irs-grid">' +
+        '<div><span>' + escapeHtml(t('gross')) + '</span><strong>' + money.format(s2.gross) + '</strong></div>' +
+        '<div><span>' + escapeHtml(t('netReceived')) + '</span><strong class="positive">' + money.format(s2.net) + '</strong></div>' +
+        '<div><span>' + escapeHtml(t('irsWithheld')) + '</span><strong class="negative">−' + money.format(s2.irs) + '</strong></div>' +
+        '<div><span>' + escapeHtml(t('k_ss')) + '</span><strong class="negative">−' + money.format(s2.ss) + '</strong></div>' +
+        '<div><span>' + escapeHtml(t('holidayXmas')) + '</span><strong>' + money.format(s2.subs) + '</strong></div>' +
+        '<div><span>' + escapeHtml(t('k_meal')) + '</span><strong>' + money.format(s2.meal) + '</strong></div>' +
+      '</div>' +
+      '<p class="help irs-count">' + escapeHtml(t('slipsSaved', { n: s2.months.length })) + '</p>' +
+      '<div class="irs-months">' + monthCells + '</div>' +
+      '<p class="help">' + escapeHtml(t('irsHint')) + '</p>' +
+      '<div class="card-actions"><button type="button" class="btn btn-primary btn-small" id="irs-export">' + escapeHtml(t('exportIrs', { year: irsYear })) + '</button></div>';
+  }
+  function irsTotals(year) {
+    var r = { gross: 0, net: 0, irs: 0, ss: 0, subs: 0, meal: 0, months: [], rows: {} };
+    state.payslips.forEach(function (p) {
+      if (+p.month.slice(0, 4) !== year) return;
+      var m = +p.month.slice(5) - 1, tt = payslipTotals(p);
+      if (r.months.indexOf(m) < 0) r.months.push(m);
+      var row = r.rows[p.month] = r.rows[p.month] || { gross: 0, net: 0, irs: 0, ss: 0, subs: 0, meal: 0 };
+      row.gross += tt.gross; row.net += tt.net;
+      p.lines.forEach(function (l) {
+        if (l.kind === 'irs') row.irs += l.amount;
+        else if (l.kind === 'ss') row.ss += l.amount;
+        else if (l.kind === 'holiday' || l.kind === 'christmas' || l.kind === 'twelfths') row.subs += l.amount;
+        else if (l.kind === 'meal') row.meal += l.amount;
+      });
+    });
+    Object.keys(r.rows).forEach(function (k) { ['gross', 'net', 'irs', 'ss', 'subs', 'meal'].forEach(function (f) { r[f] += r.rows[k][f]; }); });
+    ['gross', 'net', 'irs', 'ss', 'subs', 'meal'].forEach(function (f) { r[f] = round2(r[f]); });
+    return r;
+  }
+  $('#irs-card').addEventListener('click', function (e) {
+    var nav = e.target.closest('[data-irs]');
+    if (nav) { irsYear += +nav.getAttribute('data-irs'); renderIrs(); return; }
+    if (!e.target.closest('#irs-export')) return;
+    var dec = (1.5).toLocaleString(lang).indexOf(',') > -1 ? ',' : '.', sep = dec === ',' ? ';' : ',';
+    function num(v) { return round2(v).toFixed(2).replace('.', dec); }
+    var tot = irsTotals(irsYear);
+    var rows = [[t('month'), t('gross'), t('irsWithheld'), t('k_ss'), t('netReceived'), t('holidayXmas'), t('k_meal')]];
+    Object.keys(tot.rows).sort().forEach(function (k) {
+      var r = tot.rows[k]; rows.push([k, num(r.gross), num(r.irs), num(r.ss), num(r.net), num(r.subs), num(r.meal)]);
+    });
+    rows.push(['IRS ' + irsYear, num(tot.gross), num(tot.irs), num(tot.ss), num(tot.net), num(tot.subs), num(tot.meal)]);
+    download('irs-' + irsYear + '.csv', '\ufeff' + rows.map(function (r) { return r.join(sep); }).join('\r\n'), 'text/csv');
+  });
 
   // ---------- Next 14 days (always counted from today) ----------
   function renderComingUp(now) {
@@ -1068,10 +1188,15 @@
     scanBox.hidden = false;
     $('#scan-bar').style.width = '0%';
     $('#scan-status').textContent = t('reading', { pct: 0 });
-    window.Payslip.scan(file, function (pct) {
+    var isPdf = /pdf$/i.test(file.type || '') || /\.pdf$/i.test(file.name || '');
+    var progress = function (pct) {
       $('#scan-bar').style.width = pct + '%';
       $('#scan-status').textContent = t('reading', { pct: pct });
-    }).then(function (out) {
+    };
+    var job = isPdf
+      ? window.Payslip.readPdf(file, progress, function () { return window.prompt(t('pdfPassword')); })
+      : window.Payslip.scan(file, progress);
+    job.then(function (out) {
       scanBox.hidden = true;
       var r = out.result;
       // A contract usually states only the gross salary: use it as the base salary line.
@@ -1080,14 +1205,14 @@
       openPayslipForm(null, {
         // A contract's date is when it was signed, not a pay month, so a contract starts on the current month.
         lines: r.items, month: contract ? null : r.month, detectedNet: r.net, text: out.text,
-        looksLikeContract: contract
+        looksLikeContract: contract, fromPdf: !!out.fromPdf
       });
     }, function () {
       $('#scan-bar').style.width = '0%';
       $('#scan-status').textContent = t('readFailed');
     });
   }
-  ['#scan-camera', '#scan-file'].forEach(function (sel) {
+  ['#scan-camera', '#scan-file', '#scan-pdf'].forEach(function (sel) {
     $(sel).addEventListener('change', function (e) {
       var f = e.target.files && e.target.files[0];
       e.target.value = '';
@@ -1161,13 +1286,12 @@
     $('#calc-gross').textContent = money.format(tot.gross);
     $('#calc-deduct').textContent = '−' + money.format(tot.deduct);
     $('#calc-net').textContent = money.format(tot.net);
-    var warn = $('#payslip-mismatch');
-    if (detectedNet != null && Math.abs(detectedNet - tot.net) > 0.05) {
-      warn.hidden = false;
-      warn.textContent = t('mismatch', { net: money.format(detectedNet), calc: money.format(tot.net) });
-    } else {
-      warn.hidden = true;
-    }
+    var warn = $('#payslip-mismatch'), okNote = $('#payslip-match');
+    var matches = detectedNet != null && Math.abs(detectedNet - tot.net) <= 0.05;
+    warn.hidden = !(detectedNet != null && !matches);
+    if (!warn.hidden) warn.textContent = t('mismatch', { net: money.format(detectedNet), calc: money.format(tot.net) });
+    okNote.hidden = !matches;
+    if (matches) okNote.textContent = '✓ ' + t('matchNet', { net: money.format(detectedNet) });
   }
 
   // Social Security and IRS lines added with the buttons below follow the earnings automatically
@@ -1268,7 +1392,8 @@
     var lines = slip ? slip.lines : (scanned ? scanned.lines : []);
     lines.forEach(function (l) { addLineRow(window.Payslip.KINDS[l.kind].side, l); });
     if (!lines.some(function (l) { return window.Payslip.KINDS[l.kind].side === 'earn'; })) addLineRow('earn');
-    $('#payslip-check').hidden = !scanned;
+    $('#payslip-check').hidden = !scanned || !!scanned.fromPdf;
+    $('#payslip-frompdf').hidden = !(scanned && scanned.fromPdf);
     $('#payslip-contract').hidden = !(scanned && scanned.looksLikeContract);
     $('#ocr-details').hidden = !(scanned && scanned.text);
     $('#ocr-text').textContent = scanned ? scanned.text : '';

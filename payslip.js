@@ -269,5 +269,93 @@
     });
   }
 
-  window.Payslip = { KINDS: KINDS, parse: parse, scan: scan };
+  // ---------- PDF payslips (read on this device with pdf.js; nothing is uploaded) ----------
+  var pdfLibPromise = null;
+  function loadPdfLib() {
+    if (!pdfLibPromise) {
+      pdfLibPromise = new Promise(function (resolve, reject) {
+        if (window.pdfjsLib) return resolve(window.pdfjsLib);
+        var sc = document.createElement('script');
+        sc.src = abs('vendor/pdfjs/pdf.min.js');
+        sc.onload = function () {
+          window.pdfjsLib.GlobalWorkerOptions.workerSrc = abs('vendor/pdfjs/pdf.worker.min.js');
+          resolve(window.pdfjsLib);
+        };
+        sc.onerror = function () { pdfLibPromise = null; reject(new Error('pdfjs')); };
+        document.head.appendChild(sc);
+      });
+    }
+    return pdfLibPromise;
+  }
+
+  // Put the PDF's text pieces back into lines: same height = same line, left to right,
+  // with wide gaps kept as wide spaces (like the columns of a payslip table).
+  function pageText(page) {
+    return page.getTextContent().then(function (tc) {
+      var items = tc.items.filter(function (it) { return it.str && it.str.trim(); }).map(function (it) {
+        return { s: it.str, x: it.transform[4], y: it.transform[5], w: it.width || 0, h: Math.abs(it.transform[3]) || 10 };
+      });
+      items.sort(function (a, b) { return b.y - a.y || a.x - b.x; });
+      var lines = [], cur = null;
+      items.forEach(function (it) {
+        if (!cur || Math.abs(cur.y - it.y) > Math.max(2, it.h * 0.45)) { cur = { y: it.y, items: [] }; lines.push(cur); }
+        cur.items.push(it);
+      });
+      return lines.map(function (l) {
+        l.items.sort(function (a, b) { return a.x - b.x; });
+        var out = '', end = null;
+        l.items.forEach(function (it) {
+          if (end != null) {
+            var gap = it.x - end, charW = it.w / Math.max(1, it.s.length) || 5;
+            out += gap > charW * 2.5 ? '    ' : (gap > charW * 0.15 && !/\s$/.test(out) ? ' ' : '');
+          }
+          out += it.s;
+          end = it.x + it.w;
+        });
+        return out.trim();
+      }).join('\n');
+    });
+  }
+
+  // Returns { text, result, fromPdf: true } like scan(). A PDF that is only a picture (a scanned
+  // payslip) has no text inside, so its first page is drawn and read like a photo instead.
+  function readPdf(file, onProgress, askPassword) {
+    if (onProgress) onProgress(5);
+    return Promise.all([loadPdfLib(), file.arrayBuffer()]).then(function (r) {
+      var lib = r[0], data = new Uint8Array(r[1]);
+      function open(password, triesLeft) {
+        return lib.getDocument({ data: data.slice(), password: password, isEvalSupported: false }).promise.catch(function (err) {
+          if (err && err.name === 'PasswordException' && askPassword && triesLeft > 0) {
+            var pw = askPassword(err.code === 2);     // code 2 = the password typed was wrong
+            if (pw != null && pw !== '') return open(pw, triesLeft - 1);
+          }
+          throw err;
+        });
+      }
+      return open(undefined, 3);
+    }).then(function (doc) {
+      var pages = [];
+      for (var i = 1; i <= Math.min(doc.numPages, 4); i++) pages.push(doc.getPage(i));
+      return Promise.all(pages).then(function (ps) {
+        return Promise.all(ps.map(pageText)).then(function (texts) {
+          var text = texts.join('\n');
+          if (onProgress) onProgress(60);
+          if (text.replace(/\s/g, '').length >= 40) {
+            if (onProgress) onProgress(100);
+            return { text: text, result: parse(text), fromPdf: true };
+          }
+          // Scanned PDF: draw page 1 large and read it with the photo reader.
+          var page = ps[0], vp = page.getViewport({ scale: 2.5 }), c = document.createElement('canvas');
+          c.width = vp.width; c.height = vp.height;
+          return page.render({ canvasContext: c.getContext('2d'), viewport: vp }).promise.then(function () {
+            return new Promise(function (res) { c.toBlob(res, 'image/png'); });
+          }).then(function (blob) {
+            return scan(blob, function (p) { if (onProgress) onProgress(60 + Math.round(p * 0.4)); });
+          });
+        });
+      });
+    });
+  }
+
+  window.Payslip = { KINDS: KINDS, parse: parse, scan: scan, readPdf: readPdf };
 })();
